@@ -68,13 +68,14 @@ class TagRepository:
         )
         return list(result.scalars().all())
 
-    async def create(self, name: str, embedding: Optional[np.ndarray] = None) -> Tag:
+    async def create(self, name: str, embedding: Optional[np.ndarray] = None, commit: bool = True) -> Tag:
         """
         신규 태그 생성
 
         Args:
             name: 태그 이름
             embedding: 태그 임베딩 벡터 (선택)
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             생성된 Tag 객체
@@ -83,8 +84,12 @@ class TagRepository:
         if embedding is not None:
             tag.embedding = embedding.tolist()  # numpy array를 list로 변환
         self.db.add(tag)
-        await self.db.commit()
-        await self.db.refresh(tag)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(tag)
+        else:
+            await self.db.flush()
+            await self.db.refresh(tag)
         return tag
 
     async def bulk_create(self, names: List[str]) -> List[Tag]:
@@ -133,12 +138,13 @@ class TagRepository:
         embedding_str = f"[{','.join(map(str, embedding.tolist()))}]"
 
         # SQL 쿼리 구성
+        # cast() 함수를 사용하여 타입 캐스팅 (::vector 대신)
         query = text("""
             SELECT tag_id, name, embedding, created_at,
-                   (embedding <=> :embedding::vector) as distance
+                   (embedding <=> cast(:embedding as vector)) as distance
             FROM tags
             WHERE embedding IS NOT NULL
-              AND (embedding <=> :embedding::vector) < :max_distance
+              AND (embedding <=> cast(:embedding as vector)) < :max_distance
             ORDER BY distance ASC
             LIMIT 1
         """)
@@ -164,7 +170,8 @@ class TagRepository:
         self,
         name: str,
         embedding: Optional[np.ndarray] = None,
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = 0.8,
+        commit: bool = True
     ) -> Tag:
         """
         태그 조회 또는 생성 (Get-or-Create 패턴)
@@ -174,6 +181,7 @@ class TagRepository:
             name: 태그 이름
             embedding: 태그 임베딩 벡터 (선택)
             similarity_threshold: 유사도 임계값 (기본값: 0.8)
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             조회되거나 생성된 Tag 객체
@@ -193,7 +201,7 @@ class TagRepository:
                 return similar_tag
 
         # 3. 유사한 태그가 없으면 새로 생성
-        return await self.create(name, embedding)
+        return await self.create(name, embedding, commit=commit)
 
     async def bulk_get_or_create(self, names: List[str]) -> List[Tag]:
         """
@@ -256,13 +264,14 @@ class DocumentTagRepository:
         await self.db.refresh(document_tag)
         return document_tag
 
-    async def bulk_create(self, document_id: int, tag_ids: List[int]) -> List[DocumentTag]:
+    async def bulk_create(self, document_id: int, tag_ids: List[int], commit: bool = True) -> List[DocumentTag]:
         """
         하나의 문서에 여러 태그를 한 번에 연결 (N+1 문제 방지)
 
         Args:
             document_id: 문서 ID
             tag_ids: 태그 ID 리스트
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             생성된 DocumentTag 객체 리스트
@@ -275,11 +284,17 @@ class DocumentTagRepository:
             for tag_id in tag_ids
         ]
         self.db.add_all(document_tags)
-        await self.db.commit()
 
-        # refresh
-        for doc_tag in document_tags:
-            await self.db.refresh(doc_tag)
+        if commit:
+            await self.db.commit()
+            # refresh
+            for doc_tag in document_tags:
+                await self.db.refresh(doc_tag)
+        else:
+            await self.db.flush()
+            # refresh
+            for doc_tag in document_tags:
+                await self.db.refresh(doc_tag)
 
         return document_tags
 

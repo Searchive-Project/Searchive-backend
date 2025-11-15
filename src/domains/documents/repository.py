@@ -26,7 +26,8 @@ class DocumentRepository:
         original_filename: str,
         storage_path: str,
         file_type: str,
-        file_size_kb: int
+        file_size_kb: int,
+        commit: bool = True
     ) -> Document:
         """
         신규 문서 생성
@@ -37,6 +38,7 @@ class DocumentRepository:
             storage_path: MinIO 저장 경로
             file_type: 파일 MIME 타입
             file_size_kb: 파일 크기 (KB)
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             생성된 Document 객체
@@ -49,8 +51,12 @@ class DocumentRepository:
             file_size_kb=file_size_kb
         )
         self.db.add(document)
-        await self.db.commit()
-        await self.db.refresh(document)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(document)
+        else:
+            await self.db.flush()  # ID 생성을 위해 flush (commit은 나중에)
+            await self.db.refresh(document)
         return document
 
     async def find_by_id(self, document_id: int) -> Optional[Document]:

@@ -169,3 +169,5 @@ site/
 # Backup files
 *.bak
 *.backup
+
+*.sql

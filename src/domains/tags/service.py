@@ -52,7 +52,8 @@ class TagService:
     async def get_or_create_tag(
         self,
         name: str,
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = 0.8,
+        commit: bool = True
     ) -> Tag:
         """
         태그 조회 또는 생성 (임베딩 기반 유사도 검색 포함)
@@ -60,6 +61,7 @@ class TagService:
         Args:
             name: 태그 이름
             similarity_threshold: 유사도 임계값 (기본값: 0.8)
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             Tag 객체
@@ -71,13 +73,15 @@ class TagService:
         return await self.tag_repository.get_or_create(
             name=name,
             embedding=embedding,
-            similarity_threshold=similarity_threshold
+            similarity_threshold=similarity_threshold,
+            commit=commit
         )
 
     async def get_or_create_tags(
         self,
         names: List[str],
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = 0.8,
+        commit: bool = True
     ) -> List[Tag]:
         """
         여러 태그를 한 번에 조회 또는 생성 (임베딩 기반 유사도 검색 포함)
@@ -85,6 +89,7 @@ class TagService:
         Args:
             names: 태그 이름 리스트
             similarity_threshold: 유사도 임계값 (기본값: 0.8)
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             Tag 객체 리스트
@@ -103,7 +108,8 @@ class TagService:
         for name in unique_names:
             tag = await self.get_or_create_tag(
                 name=name,
-                similarity_threshold=similarity_threshold
+                similarity_threshold=similarity_threshold,
+                commit=commit
             )
             tags.append(tag)
 
@@ -115,7 +121,8 @@ class TagService:
         self,
         document_id: int,
         tag_names: List[str],
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = 0.8,
+        commit: bool = True
     ) -> List[Tag]:
         """
         문서에 태그 연결 (임베딩 기반 유사도 검색 포함)
@@ -124,6 +131,7 @@ class TagService:
             document_id: 문서 ID
             tag_names: 태그 이름 리스트
             similarity_threshold: 유사도 임계값 (기본값: 0.8)
+            commit: 즉시 commit 여부 (기본값: True, False일 경우 Service에서 관리)
 
         Returns:
             연결된 Tag 객체 리스트
@@ -135,12 +143,13 @@ class TagService:
         # 1. 임베딩 기반 태그 조회 또는 생성
         tags = await self.get_or_create_tags(
             names=tag_names,
-            similarity_threshold=similarity_threshold
+            similarity_threshold=similarity_threshold,
+            commit=commit
         )
 
         # 2. 문서-태그 연결 생성 (N+1 문제 방지)
         tag_ids = [tag.tag_id for tag in tags]
-        await self.document_tag_repository.bulk_create(document_id, tag_ids)
+        await self.document_tag_repository.bulk_create(document_id, tag_ids, commit=commit)
 
         logger.info(f"문서 {document_id}에 태그 {len(tags)}개 연결 완료: {tag_names}")
 

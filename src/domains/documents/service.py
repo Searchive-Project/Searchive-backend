@@ -84,6 +84,9 @@ class DocumentService:
         file_size_bytes = len(file_data)
         file_size_kb = file_size_bytes // 1024
 
+        # MinIO 업로드 여부 추적 (롤백용)
+        minio_uploaded = False
+
         try:
             # 4. MinIO에 파일 업로드
             from io import BytesIO
@@ -95,17 +98,19 @@ class DocumentService:
                 file_size=file_size_bytes,
                 content_type=file.content_type
             )
+            minio_uploaded = True
             logger.info(f"MinIO 업로드 성공: {storage_path}")
 
-            # 5. PostgreSQL에 메타데이터 저장
+            # 5. PostgreSQL에 메타데이터 저장 (commit하지 않음)
             document = await self.document_repository.create(
                 user_id=user_id,
                 original_filename=file.filename,
                 storage_path=storage_path,
                 file_type=file.content_type,
-                file_size_kb=file_size_kb
+                file_size_kb=file_size_kb,
+                commit=False  # Service 레벨에서 트랜잭션 관리
             )
-            logger.info(f"문서 메타데이터 저장 성공: document_id={document.document_id}")
+            logger.info(f"문서 메타데이터 저장 성공 (pending commit): document_id={document.document_id}")
 
             # 6. 텍스트 추출
             extracted_text = text_extractor.extract_text_from_bytes(
@@ -116,6 +121,8 @@ class DocumentService:
 
             if not extracted_text or len(extracted_text.strip()) < 10:
                 logger.warning(f"문서 {document.document_id}에서 텍스트 추출 실패 또는 너무 짧음. 태그 생성 건너뜀.")
+                # 텍스트 추출 실패는 오류가 아니므로 commit 후 반환
+                await self.db.commit()
                 return document, [], "none"
 
             # 7. Elasticsearch에 문서 색인
@@ -137,25 +144,54 @@ class DocumentService:
 
             if not keywords:
                 logger.warning(f"문서 {document.document_id}에서 키워드 추출 실패. 태그 생성 건너뜀.")
+                # 키워드 추출 실패는 오류가 아니므로 commit 후 반환
+                await self.db.commit()
                 return document, [], extraction_method
 
-            # 9. 태그 생성 및 문서에 연결 (Get-or-Create 패턴으로 N+1 문제 방지)
+            # 9. 태그 생성 및 문서에 연결 (Get-or-Create 패턴으로 N+1 문제 방지, commit하지 않음)
             if self.tag_service:
                 tags = await self.tag_service.attach_tags_to_document(
                     document_id=document.document_id,
-                    tag_names=keywords
+                    tag_names=keywords,
+                    commit=False  # Service 레벨에서 트랜잭션 관리
                 )
-                logger.info(f"문서 {document.document_id}에 태그 {len(tags)}개 연결 완료")
+                logger.info(f"문서 {document.document_id}에 태그 {len(tags)}개 연결 완료 (pending commit)")
             else:
                 tags = []
                 logger.warning("TagService가 초기화되지 않았습니다. 태그 생성 건너뜀.")
 
+            # 10. 모든 DB 작업 성공 시 commit
+            await self.db.commit()
+            logger.info(f"문서 업로드 트랜잭션 commit 완료: document_id={document.document_id}")
+
             return document, tags, extraction_method
 
         except HTTPException:
+            # HTTPException은 그대로 전파하되, DB 롤백 + MinIO 파일 삭제
+            await self.db.rollback()
+            logger.info("DB 트랜잭션 롤백 완료")
+
+            if minio_uploaded:
+                try:
+                    minio_client.delete_file(storage_path)
+                    logger.info(f"오류로 인한 MinIO 파일 롤백 완료: {storage_path}")
+                except Exception as delete_error:
+                    logger.error(f"MinIO 파일 삭제 실패 (수동 정리 필요): {storage_path}, 오류: {delete_error}")
             raise
         except Exception as e:
             logger.error(f"문서 업로드 실패: {e}", exc_info=True)
+
+            # 보상 트랜잭션: DB 롤백 + MinIO 파일 삭제
+            await self.db.rollback()
+            logger.info("DB 트랜잭션 롤백 완료")
+
+            if minio_uploaded:
+                try:
+                    minio_client.delete_file(storage_path)
+                    logger.info(f"오류로 인한 MinIO 파일 롤백 완료: {storage_path}")
+                except Exception as delete_error:
+                    logger.error(f"MinIO 파일 삭제 실패 (수동 정리 필요): {storage_path}, 오류: {delete_error}")
+
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="문서 업로드 중 오류가 발생했습니다."
