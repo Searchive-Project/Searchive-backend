@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Tag 도메인 Repository"""
 from typing import Optional, List
-from sqlalchemy import select
+import numpy as np
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.domains.tags.models import Tag, DocumentTag
@@ -67,17 +68,20 @@ class TagRepository:
         )
         return list(result.scalars().all())
 
-    async def create(self, name: str) -> Tag:
+    async def create(self, name: str, embedding: Optional[np.ndarray] = None) -> Tag:
         """
         신규 태그 생성
 
         Args:
             name: 태그 이름
+            embedding: 태그 임베딩 벡터 (선택)
 
         Returns:
             생성된 Tag 객체
         """
         tag = Tag(name=name)
+        if embedding is not None:
+            tag.embedding = embedding.tolist()  # numpy array를 list로 변환
         self.db.add(tag)
         await self.db.commit()
         await self.db.refresh(tag)
@@ -103,20 +107,93 @@ class TagRepository:
 
         return tags
 
-    async def get_or_create(self, name: str) -> Tag:
+    async def find_similar_tag(
+        self,
+        embedding: np.ndarray,
+        threshold: float = 0.8,
+        exclude_name: Optional[str] = None
+    ) -> Optional[Tag]:
+        """
+        임베딩 벡터와 유사한 태그 찾기 (벡터 유사도 검색)
+
+        Args:
+            embedding: 쿼리 임베딩 벡터
+            threshold: 최소 유사도 임계값 (0.0 ~ 1.0, 기본값: 0.8)
+            exclude_name: 제외할 태그 이름 (선택)
+
+        Returns:
+            가장 유사한 Tag 객체 또는 None
+        """
+        # pgvector의 cosine distance 사용 (<=> 연산자)
+        # cosine distance = 1 - cosine similarity
+        # 따라서 distance < (1 - threshold)인 태그를 찾음
+        max_distance = 1 - threshold
+
+        # 임베딩을 문자열로 변환 (pgvector 쿼리용)
+        embedding_str = f"[{','.join(map(str, embedding.tolist()))}]"
+
+        # SQL 쿼리 구성
+        query = text("""
+            SELECT tag_id, name, embedding, created_at,
+                   (embedding <=> :embedding::vector) as distance
+            FROM tags
+            WHERE embedding IS NOT NULL
+              AND (embedding <=> :embedding::vector) < :max_distance
+            ORDER BY distance ASC
+            LIMIT 1
+        """)
+
+        result = await self.db.execute(
+            query,
+            {"embedding": embedding_str, "max_distance": max_distance}
+        )
+
+        row = result.fetchone()
+        if row is None:
+            return None
+
+        # exclude_name 체크
+        if exclude_name and row[1] == exclude_name:
+            return None
+
+        # Tag 객체로 변환
+        tag = await self.find_by_id(row[0])
+        return tag
+
+    async def get_or_create(
+        self,
+        name: str,
+        embedding: Optional[np.ndarray] = None,
+        similarity_threshold: float = 0.8
+    ) -> Tag:
         """
         태그 조회 또는 생성 (Get-or-Create 패턴)
+        임베딩이 제공된 경우 유사한 태그 검색 후 재사용
 
         Args:
             name: 태그 이름
+            embedding: 태그 임베딩 벡터 (선택)
+            similarity_threshold: 유사도 임계값 (기본값: 0.8)
 
         Returns:
             조회되거나 생성된 Tag 객체
         """
+        # 1. 정확히 일치하는 태그 찾기
         tag = await self.find_by_name(name)
         if tag:
             return tag
-        return await self.create(name)
+
+        # 2. 임베딩이 제공된 경우, 유사한 태그 찾기
+        if embedding is not None:
+            similar_tag = await self.find_similar_tag(
+                embedding=embedding,
+                threshold=similarity_threshold
+            )
+            if similar_tag:
+                return similar_tag
+
+        # 3. 유사한 태그가 없으면 새로 생성
+        return await self.create(name, embedding)
 
     async def bulk_get_or_create(self, names: List[str]) -> List[Tag]:
         """

@@ -2,6 +2,7 @@
 from sqlalchemy import Column, BigInteger, String, TIMESTAMP, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 from src.db.session import Base
 
 
@@ -12,6 +13,7 @@ class Tag(Base):
 
     tag_id = Column(BigInteger, primary_key=True, autoincrement=True)  # 태그 고유 ID
     name = Column(String(100), unique=True, nullable=False, index=True)  # 태그 이름
+    embedding = Column(Vector(384), nullable=True)  # 태그 임베딩 벡터 (384차원)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())  # 생성 일시
 
     # 관계 설정

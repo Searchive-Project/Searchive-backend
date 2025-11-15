@@ -9,6 +9,7 @@ sqlalchemy==2.0.35
 asyncpg==0.30.0
 psycopg2-binary==2.9.10
 alembic==1.14.0
+pgvector==0.3.6
 
 # Database - Redis
 redis==5.2.0
