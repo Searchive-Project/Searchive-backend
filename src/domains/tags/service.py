@@ -85,7 +85,7 @@ class TagService:
         commit: bool = True
     ) -> List[Tag]:
         """
-        여러 태그를 한 번에 조회 또는 생성 (임베딩 기반 유사도 검색 포함)
+        여러 태그를 한 번에 조회 또는 생성 (Elasticsearch 배치 벡터 검색)
 
         Args:
             names: 태그 이름 리스트
@@ -118,17 +118,54 @@ class TagService:
         normalized_names = [self.normalize_tag_name(name) for name in valid_names]
         unique_names = list(set(normalized_names))
 
-        logger.info(f"태그 조회/생성 시작 (임베딩 기반): {unique_names}")
+        logger.info(f"태그 조회/생성 시작 (Elasticsearch 배치 검색): {unique_names}")
 
-        # 각 태그에 대해 임베딩 기반 Get-or-Create 수행
+        # 배치로 임베딩 생성
+        embeddings = [embedding_service.encode(name) for name in unique_names]
+
+        # Elasticsearch 배치 검색을 위해 임베딩 리스트 변환
+        from src.core.elasticsearch_client import elasticsearch_client
+        embedding_lists = [emb.tolist() for emb in embeddings]
+
+        # 배치 유사 태그 검색
+        batch_results = await elasticsearch_client.search_similar_tags_batch(
+            embeddings=embedding_lists,
+            threshold=similarity_threshold,
+            size=1
+        )
+
+        # 각 태그에 대해 Get-or-Create 수행
         tags = []
-        for name in unique_names:
-            tag = await self.get_or_create_tag(
-                name=name,
-                similarity_threshold=similarity_threshold,
-                commit=commit
-            )
-            tags.append(tag)
+        for i, name in enumerate(unique_names):
+            embedding = embeddings[i]
+            similar_tags = batch_results[i]
+
+            # 1. 정확히 일치하는 태그 찾기
+            logger.info(f"[get_or_create_tags] 처리 중: '{name}'")
+            tag = await self.tag_repository.find_by_name(name)
+            if tag:
+                logger.info(f"[get_or_create_tags] ✓ 정확히 일치하는 태그 발견: '{tag.name}' (ID: {tag.tag_id})")
+                tags.append(tag)
+                continue
+
+            # 2. 유사한 태그가 있으면 재사용
+            if similar_tags:
+                most_similar = similar_tags[0]
+                tag_id = most_similar["tag_id"]
+                similar_name = most_similar["name"]
+                score = most_similar["score"]
+
+                logger.info(f"[get_or_create_tags] ✓ 유사한 태그 발견: '{similar_name}' (ID: {tag_id}, score: {score:.4f})")
+                tag = await self.tag_repository.find_by_id(tag_id)
+                if tag:
+                    tags.append(tag)
+                    continue
+
+            # 3. 유사한 태그가 없으면 새로 생성
+            logger.info(f"[get_or_create_tags] 새 태그 생성: '{name}'")
+            new_tag = await self.tag_repository.create(name, embedding, commit=commit)
+            logger.info(f"[get_or_create_tags] ✓ 새 태그 생성 완료: '{new_tag.name}' (ID: {new_tag.tag_id})")
+            tags.append(new_tag)
 
         logger.info(f"태그 조회/생성 완료: {len(tags)}개")
 

@@ -15,6 +15,7 @@ class ElasticsearchClient:
         """ElasticsearchClient 초기화"""
         self.client: Optional[AsyncElasticsearch] = None
         self.index_name = "documents"
+        self.tags_index_name = "tags"
 
     async def connect(self):
         """Elasticsearch 연결"""
@@ -28,6 +29,7 @@ class ElasticsearchClient:
 
             # 인덱스가 없으면 생성
             await self.create_index_if_not_exists()
+            await self.create_tags_index_if_not_exists()
 
     async def close(self):
         """Elasticsearch 연결 종료"""
@@ -451,6 +453,230 @@ class ElasticsearchClient:
 
         except Exception as e:
             logger.error(f"재색인 실패: {e}", exc_info=True)
+            return False
+
+    async def create_tags_index_if_not_exists(self):
+        """Tags 인덱스가 없으면 생성 (dense_vector 필드 포함)"""
+        if not self.client:
+            await self.connect()
+
+        exists = await self.client.indices.exists(index=self.tags_index_name)
+
+        if not exists:
+            # Tags 인덱스 설정 (dense_vector 필드 포함)
+            tags_index_settings = {
+                "settings": {
+                    "number_of_shards": 1,
+                    "number_of_replicas": 0
+                },
+                "mappings": {
+                    "properties": {
+                        "tag_id": {"type": "long"},
+                        "name": {
+                            "type": "text",
+                            "fields": {
+                                "keyword": {"type": "keyword"}  # 정확한 매칭용
+                            }
+                        },
+                        "embedding": {
+                            "type": "dense_vector",
+                            "dims": 384,  # paraphrase-multilingual-MiniLM-L12-v2 차원
+                            "index": True,
+                            "similarity": "cosine"  # 코사인 유사도 사용
+                        },
+                        "created_at": {"type": "date"}
+                    }
+                }
+            }
+
+            await self.client.indices.create(
+                index=self.tags_index_name,
+                body=tags_index_settings
+            )
+            logger.info(f"Elasticsearch tags 인덱스 생성 완료: {self.tags_index_name}")
+
+    async def index_tag(
+        self,
+        tag_id: int,
+        name: str,
+        embedding: List[float],
+        created_at: Optional[str] = None
+    ) -> bool:
+        """
+        태그를 Elasticsearch에 색인
+
+        Args:
+            tag_id: 태그 ID
+            name: 태그 이름
+            embedding: 임베딩 벡터 (384차원 리스트)
+            created_at: 생성 일시 (ISO format string)
+
+        Returns:
+            색인 성공 여부
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            tag_body = {
+                "tag_id": tag_id,
+                "name": name,
+                "embedding": embedding,
+                "created_at": created_at
+            }
+
+            await self.client.index(
+                index=self.tags_index_name,
+                id=str(tag_id),
+                document=tag_body
+            )
+            logger.info(f"태그 색인 성공: tag_id={tag_id}, name={name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"태그 색인 실패: {e}", exc_info=True)
+            return False
+
+    async def search_similar_tags(
+        self,
+        embedding: List[float],
+        threshold: float = 0.8,
+        size: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        임베딩 벡터와 유사한 태그 검색 (KNN 검색)
+
+        Args:
+            embedding: 쿼리 임베딩 벡터 (384차원 리스트)
+            threshold: 최소 유사도 임계값 (0.0 ~ 1.0, 기본값: 0.8)
+            size: 반환할 최대 결과 수
+
+        Returns:
+            유사한 태그 리스트 [{"tag_id": int, "name": str, "score": float}, ...]
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            # KNN 검색 쿼리
+            search_query = {
+                "knn": {
+                    "field": "embedding",
+                    "query_vector": embedding,
+                    "k": size,
+                    "num_candidates": 100  # 후보 수 (정확도와 성능의 균형)
+                },
+                "min_score": threshold  # 최소 유사도 임계값
+            }
+
+            result = await self.client.search(
+                index=self.tags_index_name,
+                body=search_query,
+                size=size
+            )
+
+            # 결과 파싱
+            similar_tags = []
+            for hit in result["hits"]["hits"]:
+                similar_tags.append({
+                    "tag_id": hit["_source"]["tag_id"],
+                    "name": hit["_source"]["name"],
+                    "score": hit["_score"]
+                })
+
+            logger.info(f"유사 태그 검색 완료: {len(similar_tags)}개 발견")
+            return similar_tags
+
+        except Exception as e:
+            logger.error(f"유사 태그 검색 실패: {e}", exc_info=True)
+            return []
+
+    async def search_similar_tags_batch(
+        self,
+        embeddings: List[List[float]],
+        threshold: float = 0.8,
+        size: int = 1
+    ) -> List[List[Dict[str, Any]]]:
+        """
+        여러 임베딩 벡터에 대한 배치 유사 태그 검색
+
+        Args:
+            embeddings: 쿼리 임베딩 벡터 리스트
+            threshold: 최소 유사도 임계값
+            size: 각 쿼리당 반환할 최대 결과 수
+
+        Returns:
+            각 쿼리에 대한 유사 태그 리스트의 리스트
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            # Multi-search 쿼리 구성
+            searches = []
+            for embedding in embeddings:
+                # 헤더 (인덱스 지정)
+                searches.append({"index": self.tags_index_name})
+                # 검색 쿼리
+                searches.append({
+                    "knn": {
+                        "field": "embedding",
+                        "query_vector": embedding,
+                        "k": size,
+                        "num_candidates": 100
+                    },
+                    "min_score": threshold,
+                    "size": size
+                })
+
+            # Multi-search 실행
+            response = await self.client.msearch(body=searches)
+
+            # 결과 파싱
+            batch_results = []
+            for resp in response["responses"]:
+                if "hits" in resp:
+                    similar_tags = []
+                    for hit in resp["hits"]["hits"]:
+                        similar_tags.append({
+                            "tag_id": hit["_source"]["tag_id"],
+                            "name": hit["_source"]["name"],
+                            "score": hit["_score"]
+                        })
+                    batch_results.append(similar_tags)
+                else:
+                    batch_results.append([])
+
+            logger.info(f"배치 유사 태그 검색 완료: {len(embeddings)}개 쿼리 처리")
+            return batch_results
+
+        except Exception as e:
+            logger.error(f"배치 유사 태그 검색 실패: {e}", exc_info=True)
+            return [[] for _ in embeddings]
+
+    async def delete_tag(self, tag_id: int) -> bool:
+        """
+        Elasticsearch에서 태그 삭제
+
+        Args:
+            tag_id: 태그 ID
+
+        Returns:
+            삭제 성공 여부
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            await self.client.delete(
+                index=self.tags_index_name,
+                id=str(tag_id)
+            )
+            logger.info(f"Elasticsearch 태그 삭제 성공: tag_id={tag_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Elasticsearch 태그 삭제 실패: {e}", exc_info=True)
             return False
 
 

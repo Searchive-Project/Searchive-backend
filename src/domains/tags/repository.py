@@ -6,6 +6,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.domains.tags.models import Tag, DocumentTag
+from src.core.elasticsearch_client import elasticsearch_client
 
 
 class TagRepository:
@@ -80,6 +81,9 @@ class TagRepository:
         Returns:
             생성된 Tag 객체
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         tag = Tag(name=name)
         if embedding is not None:
             tag.embedding = embedding.tolist()  # numpy array를 list로 변환
@@ -90,6 +94,21 @@ class TagRepository:
         else:
             await self.db.flush()
             await self.db.refresh(tag)
+
+        # Elasticsearch에 색인 (비동기)
+        if embedding is not None:
+            try:
+                await elasticsearch_client.index_tag(
+                    tag_id=tag.tag_id,
+                    name=tag.name,
+                    embedding=tag.embedding,
+                    created_at=tag.created_at.isoformat() if tag.created_at else None
+                )
+                logger.info(f"[create] 태그 Elasticsearch 색인 완료: tag_id={tag.tag_id}, name={tag.name}")
+            except Exception as e:
+                logger.error(f"[create] 태그 Elasticsearch 색인 실패: {e}", exc_info=True)
+                # Elasticsearch 색인 실패해도 PostgreSQL에는 저장되어 있으므로 계속 진행
+
         return tag
 
     async def bulk_create(self, names: List[str]) -> List[Tag]:
@@ -119,7 +138,7 @@ class TagRepository:
         exclude_name: Optional[str] = None
     ) -> Optional[Tag]:
         """
-        임베딩 벡터와 유사한 태그 찾기 (벡터 유사도 검색)
+        임베딩 벡터와 유사한 태그 찾기 (Elasticsearch 벡터 유사도 검색)
 
         Args:
             embedding: 쿼리 임베딩 벡터
@@ -132,53 +151,39 @@ class TagRepository:
         import logging
         logger = logging.getLogger(__name__)
 
-        # pgvector의 cosine distance 사용 (<=> 연산자)
-        # cosine distance = 1 - cosine similarity
-        # 따라서 distance < (1 - threshold)인 태그를 찾음
-        max_distance = 1 - threshold
-
-        logger.info(f"[find_similar_tag] 유사도 검색 시작 (threshold: {threshold}, max_distance: {max_distance})")
-
-        # 임베딩을 문자열로 변환 (pgvector 쿼리용)
-        embedding_str = f"[{','.join(map(str, embedding.tolist()))}]"
-
-        # SQL 쿼리 구성
-        # cast() 함수를 사용하여 타입 캐스팅 (::vector 대신)
-        query = text("""
-            SELECT tag_id, name, embedding, created_at,
-                   (embedding <=> cast(:embedding as vector)) as distance
-            FROM tags
-            WHERE embedding IS NOT NULL
-              AND (embedding <=> cast(:embedding as vector)) < :max_distance
-            ORDER BY distance ASC
-            LIMIT 1
-        """)
+        logger.info(f"[find_similar_tag] Elasticsearch 유사도 검색 시작 (threshold: {threshold})")
 
         try:
-            result = await self.db.execute(
-                query,
-                {"embedding": embedding_str, "max_distance": max_distance}
+            # Elasticsearch에서 유사 태그 검색
+            similar_tags = await elasticsearch_client.search_similar_tags(
+                embedding=embedding.tolist(),
+                threshold=threshold,
+                size=1
             )
 
-            row = result.fetchone()
-            if row is None:
-                logger.info(f"[find_similar_tag] 유사한 태그 없음 (distance < {max_distance}인 태그 없음)")
+            if not similar_tags:
+                logger.info(f"[find_similar_tag] 유사한 태그 없음 (threshold: {threshold})")
                 return None
 
-            tag_id, name, tag_embedding, created_at, distance = row
-            logger.info(f"[find_similar_tag] 유사한 태그 발견: '{name}' (ID: {tag_id}, distance: {distance:.4f})")
+            # 가장 유사한 태그 (첫 번째)
+            most_similar = similar_tags[0]
+            tag_id = most_similar["tag_id"]
+            name = most_similar["name"]
+            score = most_similar["score"]
+
+            logger.info(f"[find_similar_tag] 유사한 태그 발견: '{name}' (ID: {tag_id}, score: {score:.4f})")
 
             # exclude_name 체크
             if exclude_name and name == exclude_name:
                 logger.info(f"[find_similar_tag] exclude_name으로 제외됨: '{name}'")
                 return None
 
-            # Tag 객체로 변환
+            # PostgreSQL에서 Tag 객체 조회
             tag = await self.find_by_id(tag_id)
             return tag
 
         except Exception as e:
-            logger.error(f"[find_similar_tag] SQL 쿼리 실행 실패: {e}", exc_info=True)
+            logger.error(f"[find_similar_tag] Elasticsearch 검색 실패: {e}", exc_info=True)
             return None
 
     async def get_or_create(
