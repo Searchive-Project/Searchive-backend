@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.domains.tags.repository import TagRepository, DocumentTagRepository
 from src.domains.tags.models import Tag
 from src.core.embedding_service import embedding_service
+from src.core.keyword_extraction import is_stopword
 import logging
 
 logger = logging.getLogger(__name__)
@@ -97,8 +98,24 @@ class TagService:
         if not names:
             return []
 
+        # 불용어 필터링 (방어적 프로그래밍)
+        valid_names = []
+        for name in names:
+            name_stripped = name.strip()
+            if not name_stripped:
+                continue
+            # 불용어 체크
+            if is_stopword(name_stripped):
+                logger.info(f"불용어로 필터링됨: '{name_stripped}'")
+                continue
+            valid_names.append(name_stripped)
+
+        if not valid_names:
+            logger.warning("불용어 필터링 후 유효한 태그 이름이 없습니다.")
+            return []
+
         # 중복 제거 및 정규화 (영어: Title Case, 한글: 소문자)
-        normalized_names = [self.normalize_tag_name(name) for name in names if name.strip()]
+        normalized_names = [self.normalize_tag_name(name) for name in valid_names]
         unique_names = list(set(normalized_names))
 
         logger.info(f"태그 조회/생성 시작 (임베딩 기반): {unique_names}")

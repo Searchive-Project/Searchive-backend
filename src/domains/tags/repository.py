@@ -129,10 +129,15 @@ class TagRepository:
         Returns:
             가장 유사한 Tag 객체 또는 None
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # pgvector의 cosine distance 사용 (<=> 연산자)
         # cosine distance = 1 - cosine similarity
         # 따라서 distance < (1 - threshold)인 태그를 찾음
         max_distance = 1 - threshold
+
+        logger.info(f"[find_similar_tag] 유사도 검색 시작 (threshold: {threshold}, max_distance: {max_distance})")
 
         # 임베딩을 문자열로 변환 (pgvector 쿼리용)
         embedding_str = f"[{','.join(map(str, embedding.tolist()))}]"
@@ -149,22 +154,32 @@ class TagRepository:
             LIMIT 1
         """)
 
-        result = await self.db.execute(
-            query,
-            {"embedding": embedding_str, "max_distance": max_distance}
-        )
+        try:
+            result = await self.db.execute(
+                query,
+                {"embedding": embedding_str, "max_distance": max_distance}
+            )
 
-        row = result.fetchone()
-        if row is None:
+            row = result.fetchone()
+            if row is None:
+                logger.info(f"[find_similar_tag] 유사한 태그 없음 (distance < {max_distance}인 태그 없음)")
+                return None
+
+            tag_id, name, tag_embedding, created_at, distance = row
+            logger.info(f"[find_similar_tag] 유사한 태그 발견: '{name}' (ID: {tag_id}, distance: {distance:.4f})")
+
+            # exclude_name 체크
+            if exclude_name and name == exclude_name:
+                logger.info(f"[find_similar_tag] exclude_name으로 제외됨: '{name}'")
+                return None
+
+            # Tag 객체로 변환
+            tag = await self.find_by_id(tag_id)
+            return tag
+
+        except Exception as e:
+            logger.error(f"[find_similar_tag] SQL 쿼리 실행 실패: {e}", exc_info=True)
             return None
-
-        # exclude_name 체크
-        if exclude_name and row[1] == exclude_name:
-            return None
-
-        # Tag 객체로 변환
-        tag = await self.find_by_id(row[0])
-        return tag
 
     async def get_or_create(
         self,
@@ -186,22 +201,42 @@ class TagRepository:
         Returns:
             조회되거나 생성된 Tag 객체
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # 1. 정확히 일치하는 태그 찾기
+        logger.info(f"[get_or_create] 1단계: 정확히 일치하는 태그 찾기 - '{name}'")
         tag = await self.find_by_name(name)
         if tag:
+            logger.info(f"[get_or_create] ✓ 정확히 일치하는 태그 발견: '{tag.name}' (ID: {tag.tag_id})")
             return tag
+        logger.info(f"[get_or_create] 정확히 일치하는 태그 없음")
 
         # 2. 임베딩이 제공된 경우, 유사한 태그 찾기
         if embedding is not None:
+            logger.info(f"[get_or_create] 2단계: 유사한 태그 찾기 (threshold: {similarity_threshold})")
+
+            # flush하여 현재 세션의 모든 변경사항을 DB로 전송 (commit하지 않고)
+            # 이렇게 해야 raw SQL 쿼리가 아직 commit되지 않은 태그들도 볼 수 있음
+            await self.db.flush()
+            logger.info(f"[get_or_create] DB flush 완료 (commit 전 변경사항 동기화)")
+
             similar_tag = await self.find_similar_tag(
                 embedding=embedding,
                 threshold=similarity_threshold
             )
             if similar_tag:
+                logger.info(f"[get_or_create] ✓ 유사한 태그 발견: '{similar_tag.name}' (ID: {similar_tag.tag_id})")
                 return similar_tag
+            logger.info(f"[get_or_create] 유사한 태그 없음")
+        else:
+            logger.info(f"[get_or_create] 2단계 건너뜀: 임베딩이 제공되지 않음")
 
         # 3. 유사한 태그가 없으면 새로 생성
-        return await self.create(name, embedding, commit=commit)
+        logger.info(f"[get_or_create] 3단계: 새 태그 생성 - '{name}' (commit: {commit})")
+        new_tag = await self.create(name, embedding, commit=commit)
+        logger.info(f"[get_or_create] ✓ 새 태그 생성 완료: '{new_tag.name}' (ID: {new_tag.tag_id})")
+        return new_tag
 
     async def bulk_get_or_create(self, names: List[str]) -> List[Tag]:
         """

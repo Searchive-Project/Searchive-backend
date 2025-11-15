@@ -1,12 +1,119 @@
 # -*- coding: utf-8 -*-
 """키워드 추출 서비스 (Hybrid: KeyBERT + Elasticsearch Significant Text)"""
-from typing import List, Tuple
+from typing import List, Tuple, Set
 from abc import ABC, abstractmethod
 from src.core.config import settings
 from src.core.elasticsearch_client import elasticsearch_client
 import logging
 
 logger = logging.getLogger(__name__)
+
+# 영어 불용어 (접속사, 전치사, 관사, 대명사 등)
+ENGLISH_STOPWORDS: Set[str] = {
+    # 관사
+    'a', 'an', 'the',
+    # 접속사
+    'and', 'or', 'but', 'nor', 'so', 'for', 'yet',
+    # 전치사
+    'of', 'in', 'on', 'at', 'to', 'by', 'with', 'from', 'up', 'about', 'into',
+    'through', 'during', 'before', 'after', 'above', 'below', 'between', 'under',
+    'over', 'out', 'off', 'down', 'upon', 'across', 'against', 'along', 'among',
+    'around', 'as', 'behind', 'beside', 'besides', 'beyond', 'inside', 'outside',
+    'near', 'next', 'onto', 'per', 'since', 'than', 'till', 'toward', 'towards',
+    'underneath', 'until', 'via', 'within', 'without',
+    # 대명사
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+    'my', 'your', 'his', 'its', 'our', 'their', 'mine', 'yours', 'hers', 'ours', 'theirs',
+    'this', 'that', 'these', 'those', 'who', 'whom', 'whose', 'which', 'what',
+    # be 동사
+    'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+    # 조동사
+    'can', 'could', 'may', 'might', 'must', 'shall', 'should', 'will', 'would',
+    # 기타 일반 불용어
+    'do', 'does', 'did', 'doing', 'done', 'have', 'has', 'had', 'having',
+    'if', 'then', 'else', 'when', 'where', 'why', 'how', 'all', 'any', 'both',
+    'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not', 'only',
+    'own', 'same', 'too', 'very', 'just', 'also', 'etc', 'eg', 'ie', 'vs',
+}
+
+# 한글 불용어 (조사, 접속사, 대명사 등)
+KOREAN_STOPWORDS: Set[str] = {
+    # 조사
+    '이', '가', '을', '를', '은', '는', '에', '에서', '로', '으로', '의', '와', '과',
+    '도', '만', '까지', '부터', '한테', '께', '보다', '처럼', '같이', '마다', '조차',
+    # 접속사
+    '그리고', '또는', '하지만', '그러나', '그래서', '그러므로', '따라서', '즉', '또한',
+    # 대명사
+    '저', '나', '너', '우리', '그', '이것', '그것', '저것', '여기', '거기', '저기',
+    # 지시사
+    '이런', '그런', '저런', '이렇게', '그렇게', '저렇게',
+    # 기타
+    '등', '및', '또', '더', '덜', '좀', '약', '혹은', '즉', '예를', '들어', '통해',
+}
+
+# 단일 문자 제외 (너무 짧은 키워드)
+MIN_KEYWORD_LENGTH = 2
+
+
+def is_stopword(keyword: str) -> bool:
+    """
+    키워드가 불용어인지 확인
+
+    Args:
+        keyword: 확인할 키워드
+
+    Returns:
+        불용어이면 True, 아니면 False
+    """
+    keyword_lower = keyword.lower().strip()
+
+    # 길이 체크
+    if len(keyword_lower) < MIN_KEYWORD_LENGTH:
+        return True
+
+    # 영어 불용어 체크
+    if keyword_lower in ENGLISH_STOPWORDS:
+        return True
+
+    # 한글 불용어 체크
+    if keyword_lower in KOREAN_STOPWORDS:
+        return True
+
+    # 숫자만 있는 경우 제외
+    if keyword_lower.isdigit():
+        return True
+
+    return False
+
+
+def filter_stopwords(keywords: List[str]) -> List[str]:
+    """
+    키워드 리스트에서 불용어 제거
+
+    Args:
+        keywords: 필터링할 키워드 리스트
+
+    Returns:
+        불용어가 제거된 키워드 리스트
+    """
+    filtered = []
+    for kw in keywords:
+        kw_stripped = kw.strip()
+        if not kw_stripped:
+            continue
+
+        # 단일 키워드인 경우 불용어 체크
+        if ' ' not in kw_stripped:
+            if not is_stopword(kw_stripped):
+                filtered.append(kw_stripped)
+        else:
+            # 다중 단어 키워드인 경우, 모든 단어가 불용어인지 체크
+            words = kw_stripped.split()
+            # 모든 단어가 불용어가 아닌 경우만 포함
+            if not all(is_stopword(word) for word in words):
+                filtered.append(kw_stripped)
+
+    return filtered
 
 
 class KeywordExtractor(ABC): # Abstract Base Class 추상 클래스 생성
@@ -171,7 +278,11 @@ class HybridKeywordExtractionService:
             keywords = await self.elasticsearch_extractor.extract_keywords(text, document_id)
             method = self.elasticsearch_extractor.get_method_name()
 
-        # 3. 키워드 정규화 (소문자 변환, 중복 제거)
+        # 3. 불용어 필터링
+        keywords = filter_stopwords(keywords)
+        logger.info(f"불용어 필터링 후 키워드: {keywords}")
+
+        # 4. 키워드 정규화 (소문자 변환, 중복 제거)
         keywords = list(set(kw.strip().lower() for kw in keywords if kw.strip()))
 
         logger.info(f"최종 키워드: {keywords}, 추출 방법: {method}")
