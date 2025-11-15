@@ -171,21 +171,24 @@ class KeyBERTExtractor(KeywordExtractor):
         self._load_model()
 
         try:
-            # KeyBERT로 키워드 추출 (상위 N개)
+            # 여유있게 많이 추출 (필터링 후 개수 보장을 위해)
             keyword_count = settings.KEYWORD_EXTRACTION_COUNT
+            # 필터링을 고려하여 3배 정도 많이 추출 (최소 10개)
+            extraction_count = max(keyword_count * 3, 10)
+
             keywords_with_scores = self.model.extract_keywords(
                 text,
                 keyphrase_ngram_range=(1, 2),  # 1~2 단어 구문까지 키워드로 고려
                 stop_words='english',  # 영어 불용어 제거(is,a, the 같은 불용어를 키워드에서 제거)
-                top_n=keyword_count,
+                top_n=extraction_count,  # 충분히 많이 추출
                 use_maxsum=True,  # 다양성 증가(키워드 중복 방지)
-                nr_candidates=20  # 후보 키워드 수(내부적으로 키워드 20개를 뽑아놓고, 그 중에 성능 좋을 것들을 추출)
+                nr_candidates=30  # 후보 키워드 수 증가
             )
 
             # (키워드, 점수) 튜플에서 키워드만 추출
             keywords = [kw[0] for kw in keywords_with_scores]
 
-            logger.info(f"KeyBERT 키워드 추출 완료: {keywords}")
+            logger.info(f"KeyBERT 키워드 추출 완료 ({len(keywords)}개): {keywords}")
             return keywords
 
         except Exception as e:
@@ -215,13 +218,17 @@ class ElasticsearchExtractor(KeywordExtractor): # 다른 문서들과 비교해�
             return []
 
         try:
+            # 여유있게 많이 추출 (필터링 후 개수 보장을 위해)
             keyword_count = settings.KEYWORD_EXTRACTION_COUNT
+            # 필터링을 고려하여 3배 정도 많이 추출 (최소 10개)
+            extraction_count = max(keyword_count * 3, 10)
+
             keywords = await elasticsearch_client.extract_significant_terms(
                 document_id=document_id,
-                size=keyword_count
+                size=extraction_count  # 충분히 많이 추출
             )
 
-            logger.info(f"Elasticsearch Significant Text 추출 완료: {keywords}")
+            logger.info(f"Elasticsearch Significant Text 추출 완료 ({len(keywords)}개): {keywords}")
             return keywords
 
         except Exception as e:
@@ -266,7 +273,7 @@ class HybridKeywordExtractionService:
 
         logger.info(f"현재 Elasticsearch 문서 수: {document_count}, 임계값: {self.threshold}")
 
-        # 2. 임계값 기반 추출 전략 선택
+        # 2. 임계값 기반 추출 전략 선택 (많이 추출)
         if document_count < self.threshold:
             # Cold Start: KeyBERT 사용
             logger.info(f"Cold Start 모드: KeyBERT 사용 (문서 수: {document_count} < {self.threshold})")
@@ -278,15 +285,29 @@ class HybridKeywordExtractionService:
             keywords = await self.elasticsearch_extractor.extract_keywords(text, document_id)
             method = self.elasticsearch_extractor.get_method_name()
 
+        logger.info(f"초기 추출 키워드 ({len(keywords)}개): {keywords}")
+
         # 3. 불용어 필터링
         keywords = filter_stopwords(keywords)
-        logger.info(f"불용어 필터링 후 키워드: {keywords}")
+        logger.info(f"불용어 필터링 후 ({len(keywords)}개): {keywords}")
 
-        # 4. 키워드 정규화 (소문자 변환, 중복 제거)
-        keywords = list(set(kw.strip().lower() for kw in keywords if kw.strip()))
+        # 4. 키워드 정규화 (중복 제거하되 순서 유지)
+        # dict.fromkeys()를 사용하여 순서를 유지하면서 중복 제거
+        seen = {}
+        for kw in keywords:
+            kw_normalized = kw.strip().lower()
+            if kw_normalized and kw_normalized not in seen:
+                seen[kw_normalized] = True
+        keywords = list(seen.keys())
 
-        logger.info(f"최종 키워드: {keywords}, 추출 방법: {method}")
-        return keywords, method
+        logger.info(f"정규화 후 ({len(keywords)}개): {keywords}")
+
+        # 5. 설정된 개수만큼만 선택 (상위 N개)
+        target_count = settings.KEYWORD_EXTRACTION_COUNT
+        final_keywords = keywords[:target_count]
+
+        logger.info(f"최종 키워드 ({len(final_keywords)}개): {final_keywords}, 추출 방법: {method}")
+        return final_keywords, method
 
 
 # 전역 키워드 추출 서비스 인스턴스
