@@ -264,8 +264,18 @@ Documents 도메인의 주요 API 엔드포인트입니다. 상세한 워크플�
 ```
 
 **AI 자동 태깅:**
-- 문서 업로드 시 AI가 자동으로 키워드를 추출합니다
-- 추출 방법: KeyBERT 또는 Elasticsearch TF-IDF (하이브리드 전략)
+- 문서 업로드 시 AI가 자동으로 키워드를 추출하고 태그를 생성합니다
+- **키워드 추출 (하이브리드 전략)**:
+  - Cold Start (문서 < 5개): KeyBERT 기반 시맨틱 키워드 추출
+  - Normal (문서 ≥ 5개): Elasticsearch TF-IDF 기반 유의미 용어 추출
+  - 추출 로직: 충분히 많이 추출(10개) → 불용어 필터링 → 상위 N개 선택 (기본 3개)
+  - 개수 보장: `.env`의 `KEYWORD_EXTRACTION_COUNT`로 설정 (항상 설정값만큼 태그 생성)
+- **태그 중복 제거 (Elasticsearch 배치 벡터 검색)**:
+  - 각 키워드를 384차원 임베딩 벡터로 변환 (paraphrase-multilingual-MiniLM-L12-v2)
+  - Elasticsearch KNN 인덱스에서 유사 태그 배치 검색 (코사인 유사도 ≥ 0.8)
+  - 성능: N개 태그 → 1번의 Multi-Search 쿼리로 처리 (~10ms)
+  - 유사 태그 발견 시 기존 태그 재사용, 없으면 새로 생성
+  - 예시: "ML" 입력 → "Machine Learning" 기존 태그와 유사도 0.85 → 재사용
 
 #### 2. 문서 목록 조회 (GET /api/v1/documents)
 현재 로그인된 사용자의 모든 문서 목록을 조회합니다. 각 문서에 연결된 태그 정보도 함께 반환됩니다.
