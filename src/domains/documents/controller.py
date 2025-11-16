@@ -11,7 +11,8 @@ from src.domains.documents.schema import (
     DocumentUploadResponse,
     DocumentListResponse,
     DocumentDetailResponse,
-    DocumentDeleteResponse
+    DocumentDeleteResponse,
+    PaginatedDocumentListResponse
 )
 from src.core.security import get_current_user_id
 
@@ -113,6 +114,57 @@ async def get_documents(
         )
         for doc in documents
     ]
+
+
+@router.get(
+    "/paginated",
+    response_model=PaginatedDocumentListResponse,
+    summary="문서 목록 조회 (페이징)"
+)
+async def get_documents_paginated(
+    page: int = 1,
+    page_size: int = 10,
+    user_id: int = Depends(get_current_user_id),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    현재 로그인된 사용자의 문서 목록을 페이징하여 조회합니다.
+
+    Args:
+        page: 페이지 번호 (1부터 시작, 기본값: 1)
+        page_size: 페이지당 항목 수 (기본값: 10)
+        user_id: get_current_user_id 의존성에서 주입된 사용자 ID
+        document_service: DocumentService 의존성 주입
+
+    Returns:
+        PaginatedDocumentListResponse: 페이징된 문서 메타데이터 목록
+    """
+    result = await document_service.get_user_documents_paginated(
+        user_id=user_id,
+        page=page,
+        page_size=page_size
+    )
+
+    from src.domains.documents.schema import TagSchema
+
+    return PaginatedDocumentListResponse(
+        items=[
+            DocumentListResponse(
+                document_id=doc.document_id,
+                original_filename=doc.original_filename,
+                file_type=doc.file_type,
+                file_size_kb=doc.file_size_kb,
+                uploaded_at=doc.uploaded_at,
+                updated_at=doc.updated_at,
+                tags=[TagSchema(tag_id=dt.tag.tag_id, name=dt.tag.name) for dt in doc.document_tags]
+            )
+            for doc in result["documents"]
+        ],
+        total=result["total"],
+        page=result["page"],
+        page_size=result["page_size"],
+        total_pages=result["total_pages"]
+    )
 
 
 @router.get(

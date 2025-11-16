@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Document 도메인 Repository"""
 from typing import Optional, List
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from src.domains.documents.models import Document
@@ -116,6 +116,49 @@ class DocumentRepository:
             .order_by(Document.uploaded_at.desc())
         )
         return list(result.scalars().all())
+
+    async def find_all_by_user_id_paginated(
+        self,
+        user_id: int,
+        skip: int = 0,
+        limit: int = 10
+    ) -> List[Document]:
+        """
+        사용자 ID로 문서 조회 (페이징 적용, 태그 포함, N+1 문제 방지)
+
+        Args:
+            user_id: 사용자 ID
+            skip: 건너뛸 항목 수
+            limit: 가져올 항목 수
+
+        Returns:
+            Document 객체 리스트
+        """
+        result = await self.db.execute(
+            select(Document)
+            .options(selectinload(Document.document_tags).selectinload(DocumentTag.tag))
+            .where(Document.user_id == user_id)
+            .order_by(Document.uploaded_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def count_by_user_id(self, user_id: int) -> int:
+        """
+        사용자 ID로 전체 문서 수 조회
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            전체 문서 수
+        """
+        result = await self.db.execute(
+            select(func.count(Document.document_id))
+            .where(Document.user_id == user_id)
+        )
+        return result.scalar_one()
 
     async def delete(self, document: Document) -> bool:
         """

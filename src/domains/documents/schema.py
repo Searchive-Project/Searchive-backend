@@ -65,3 +65,15 @@ class DocumentDeleteResponse(BaseModel):
     """문서 삭제 응답 스키마"""
     message: str = Field(..., description="삭제 결과 메시지")
     document_id: int = Field(..., description="삭제된 문서 ID")
+
+
+class PaginatedDocumentListResponse(BaseModel):
+    """페이징된 문서 목록 조회 응답 스키마"""
+    items: List[DocumentListResponse] = Field(..., description="문서 목록")
+    total: int = Field(..., description="전체 문서 수")
+    page: int = Field(..., description="현재 페이지 번호 (1부터 시작)")
+    page_size: int = Field(..., description="페이지당 항목 수")
+    total_pages: int = Field(..., description="전체 페이지 수")
+
+    class Config:
+        from_attributes = True
