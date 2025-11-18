@@ -24,8 +24,13 @@ class TestTagServiceGetOrCreate:
 
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
@@ -40,39 +45,58 @@ class TestTagServiceGetOrCreate:
     @pytest.mark.asyncio
     async def test_get_or_create_tags_bulk(self):
         """여러 태그 일괄 조회/생성 테스트 (N+1 방지)"""
+        from unittest.mock import patch
+
         # Mock Repository
         mock_tag_repository = AsyncMock()
 
         # Mock Tag 객체들
         mock_tag1 = MagicMock()
         mock_tag1.tag_id = 1
-        mock_tag1.name = "python"
+        mock_tag1.name = "Python"
         mock_tag2 = MagicMock()
         mock_tag2.tag_id = 2
-        mock_tag2.name = "fastapi"
+        mock_tag2.name = "Fastapi"
         mock_tag3 = MagicMock()
         mock_tag3.tag_id = 3
-        mock_tag3.name = "redis"
-        mock_tags = [mock_tag1, mock_tag2, mock_tag3]
-        mock_tag_repository.bulk_get_or_create.return_value = mock_tags
+        mock_tag3.name = "Redis"
+
+        # find_by_name이 순서대로 각 태그를 반환하도록 설정
+        mock_tag_repository.find_by_name.side_effect = [mock_tag1, mock_tag2, mock_tag3]
 
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
-        # 테스트 실행
-        tag_names = ["python", "fastapi", "redis"]
-        tags = await tag_service.get_or_create_tags(tag_names)
+        # elasticsearch_client.search_similar_tags_batch mock
+        with patch('src.core.elasticsearch_client.elasticsearch_client') as mock_es, \
+             patch('src.core.embedding_service.embedding_service') as mock_embedding:
+            # AsyncMock을 사용하여 await 가능하도록 설정
+            mock_es.search_similar_tags_batch = AsyncMock(return_value=[[], [], []])  # 유사 태그 없음
+
+            # embedding_service.encode()가 numpy array처럼 동작하도록 설정
+            mock_embedding_result = MagicMock()
+            mock_embedding_result.tolist.return_value = [0.1, 0.2, 0.3]
+            mock_embedding.encode.return_value = mock_embedding_result
+
+            # 테스트 실행
+            tag_names = ["python", "fastapi", "redis"]
+            tags = await tag_service.get_or_create_tags(tag_names)
 
         # 검증
         assert len(tags) == 3
-        assert tags[0].name == "python"
-        assert tags[1].name == "fastapi"
-        assert tags[2].name == "redis"
-        assert mock_tag_repository.bulk_get_or_create.called
+        assert tags[0].name == "Python"
+        assert tags[1].name == "Fastapi"
+        assert tags[2].name == "Redis"
+        assert mock_tag_repository.find_by_name.called
 
     @pytest.mark.asyncio
     async def test_get_or_create_tags_with_duplicates(self):
@@ -92,8 +116,13 @@ class TestTagServiceGetOrCreate:
 
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
@@ -111,8 +140,13 @@ class TestTagServiceGetOrCreate:
         mock_tag_repository = AsyncMock()
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
@@ -129,21 +163,24 @@ class TestTagServiceAttachment:
     @pytest.mark.asyncio
     async def test_attach_tags_to_document(self):
         """문서에 태그 연결 테스트"""
+        from unittest.mock import patch
+
         # Mock Repository
         mock_tag_repository = AsyncMock()
 
         # Mock Tag 객체들
         mock_tag1 = MagicMock()
         mock_tag1.tag_id = 1
-        mock_tag1.name = "machine learning"
+        mock_tag1.name = "Machine Learning"
         mock_tag2 = MagicMock()
         mock_tag2.tag_id = 2
-        mock_tag2.name = "deep learning"
+        mock_tag2.name = "Deep Learning"
         mock_tag3 = MagicMock()
         mock_tag3.tag_id = 3
-        mock_tag3.name = "neural network"
-        mock_tags = [mock_tag1, mock_tag2, mock_tag3]
-        mock_tag_repository.bulk_get_or_create.return_value = mock_tags
+        mock_tag3.name = "Neural Network"
+
+        # find_by_name이 순서대로 각 태그를 반환하도록 설정
+        mock_tag_repository.find_by_name.side_effect = [mock_tag1, mock_tag2, mock_tag3]
 
         mock_document_tag_repository = AsyncMock()
         mock_document_tag_repository.bulk_create.return_value = [
@@ -152,21 +189,37 @@ class TestTagServiceAttachment:
             MagicMock(document_id=1, tag_id=3)
         ]
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
-        # 테스트 실행
-        tag_names = ["machine learning", "deep learning", "neural network"]
-        tags = await tag_service.attach_tags_to_document(
-            document_id=1,
-            tag_names=tag_names
-        )
+        # elasticsearch_client.search_similar_tags_batch mock
+        with patch('src.core.elasticsearch_client.elasticsearch_client') as mock_es, \
+             patch('src.core.embedding_service.embedding_service') as mock_embedding:
+            # AsyncMock을 사용하여 await 가능하도록 설정
+            mock_es.search_similar_tags_batch = AsyncMock(return_value=[[], [], []])  # 유사 태그 없음
+
+            # embedding_service.encode()가 numpy array처럼 동작하도록 설정
+            mock_embedding_result = MagicMock()
+            mock_embedding_result.tolist.return_value = [0.1, 0.2, 0.3]
+            mock_embedding.encode.return_value = mock_embedding_result
+
+            # 테스트 실행
+            tag_names = ["machine learning", "deep learning", "neural network"]
+            tags = await tag_service.attach_tags_to_document(
+                document_id=1,
+                tag_names=tag_names
+            )
 
         # 검증
         assert len(tags) == 3
-        assert mock_tag_repository.bulk_get_or_create.called
+        assert mock_tag_repository.find_by_name.called
         assert mock_document_tag_repository.bulk_create.called
 
     @pytest.mark.asyncio
@@ -176,8 +229,13 @@ class TestTagServiceAttachment:
         mock_tag_repository = AsyncMock()
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
@@ -211,8 +269,13 @@ class TestTagServiceRetrieval:
         mock_tags = [mock_tag1, mock_tag2]
         mock_document_tag_repository.find_tags_by_document_id.return_value = mock_tags
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
@@ -239,8 +302,13 @@ class TestTagServiceRetrieval:
 
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 
@@ -261,8 +329,13 @@ class TestTagServiceRetrieval:
 
         mock_document_tag_repository = AsyncMock()
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # TagService 생성
-        tag_service = TagService(db=MagicMock())
+        tag_service = TagService(db=mock_db)
         tag_service.tag_repository = mock_tag_repository
         tag_service.document_tag_repository = mock_document_tag_repository
 

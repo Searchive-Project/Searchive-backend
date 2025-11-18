@@ -47,8 +47,13 @@ class TestDocumentServiceUpload:
         mock_tag2.name = "deep learning"
         mock_tag_service.attach_tags_to_document.return_value = [mock_tag1, mock_tag2]
 
+        # Mock DB session (commit/rollback은 async 메서드)
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # DocumentService 생성
-        document_service = DocumentService(mock_repository, db=MagicMock())
+        document_service = DocumentService(mock_repository, db=mock_db)
         document_service.tag_service = mock_tag_service
 
         # Mock 주입
@@ -90,7 +95,13 @@ class TestDocumentServiceUpload:
         mock_upload_file.content_type = "image/png"
 
         mock_repository = AsyncMock()
-        document_service = DocumentService(mock_repository, db=MagicMock())
+
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
+        document_service = DocumentService(mock_repository, db=mock_db)
 
         # HTTPException 발생 확인
         with pytest.raises(HTTPException) as exc_info:
@@ -145,8 +156,13 @@ class TestDocumentServiceUpload:
         mock_tag2.name = "한글"
         mock_tag_service.attach_tags_to_document.return_value = [mock_tag1, mock_tag2]
 
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
         # DocumentService 생성
-        document_service = DocumentService(mock_repository, db=MagicMock())
+        document_service = DocumentService(mock_repository, db=mock_db)
         document_service.tag_service = mock_tag_service
 
         # Mock 주입
@@ -193,7 +209,12 @@ class TestDocumentServiceUpload:
 
         mock_repository.create.return_value = mock_document
 
-        document_service = DocumentService(mock_repository, db=MagicMock())
+        # Mock DB session
+        mock_db = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
+
+        document_service = DocumentService(mock_repository, db=mock_db)
 
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
              patch('src.domains.documents.service.text_extractor', mock_text_extractor):
