@@ -39,7 +39,8 @@ Searchive-backend/
 │   └── ...
 ├── scripts/                # 유틸리티 스크립트
 │   ├── reindex_with_nori.py  # Elasticsearch 재색인 스크립트
-│   └── ...
+│   ├── migrate_tags_to_elasticsearch.py  # 태그 Elasticsearch 마이그레이션 스크립트
+│   └── check_tag_embeddings.py  # 태그 임베딩 검증 스크립트
 ├── tests/                  # 테스트 코드
 │   ├── __init__.py
 │   ├── conftest.py         # Pytest 설정 및 픽스처
@@ -64,7 +65,8 @@ Searchive-backend/
     │   ├── minio_client.py # MinIO 객체 스토리지 클라이언트
     │   ├── elasticsearch_client.py  # Elasticsearch 검색 엔진 클라이언트
     │   ├── text_extractor.py        # 파일 → 텍스트 추출기 (PDF, DOCX, HWP 등)
-    │   └── keyword_extraction.py    # AI 키워드 추출 (KeyBERT, Elasticsearch TF-IDF)
+    │   ├── keyword_extraction.py    # AI 키워드 추출 (KeyBERT, Elasticsearch TF-IDF)
+    │   └── embedding_service.py     # 텍스트 임베딩 서비스 (Sentence Transformers)
     ├── db/                 # 데이터베이스 연결 및 세션 관리
     │   ├── __init__.py
     │   └── session.py
