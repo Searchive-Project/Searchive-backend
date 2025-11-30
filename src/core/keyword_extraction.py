@@ -38,17 +38,20 @@ ENGLISH_STOPWORDS: Set[str] = {
 
 # 한글 불용어 (조사, 접속사, 대명사 등)
 KOREAN_STOPWORDS: Set[str] = {
-    # 조사
+    # 조사 (확장)
     '이', '가', '을', '를', '은', '는', '에', '에서', '로', '으로', '의', '와', '과',
     '도', '만', '까지', '부터', '한테', '께', '보다', '처럼', '같이', '마다', '조차',
+    '에게', '한테서', '께서', '에게서', '로부터', '으로부터', '라고', '이라고',
+    '라는', '이라는', '라며', '이라며', '라면', '이라면',
     # 접속사
     '그리고', '또는', '하지만', '그러나', '그래서', '그러므로', '따라서', '즉', '또한',
     # 대명사
     '저', '나', '너', '우리', '그', '이것', '그것', '저것', '여기', '거기', '저기',
     # 지시사
     '이런', '그런', '저런', '이렇게', '그렇게', '저렇게',
-    # 기타
+    # 의존명사 및 기타
     '등', '및', '또', '더', '덜', '좀', '약', '혹은', '즉', '예를', '들어', '통해',
+    '것', '수', '때', '점', '바', '중', '간', '내', '외', '간',
 }
 
 # 단일 문자 제외 (너무 짧은 키워드)
@@ -86,15 +89,43 @@ def is_stopword(keyword: str) -> bool:
     return False
 
 
+# 한글 조사 목록 (키워드에서 제거할 조사)
+KOREAN_PARTICLES = ['이', '가', '을', '를', '은', '는', '에', '에서', '로', '으로', '의', '와', '과', '도', '만']
+
+
+def remove_particle(keyword: str) -> str:
+    """
+    키워드 끝에 붙은 조사 제거
+
+    Args:
+        keyword: 조사가 붙을 수 있는 키워드
+
+    Returns:
+        조사가 제거된 키워드
+    """
+    keyword = keyword.strip()
+
+    # 한글이 포함된 경우에만 처리
+    if any('\uac00' <= c <= '\ud7a3' for c in keyword):
+        for particle in KOREAN_PARTICLES:
+            if keyword.endswith(particle) and len(keyword) > len(particle) + 1:
+                # 조사를 제거한 결과가 의미있는 길이인 경우에만 제거
+                candidate = keyword[:-len(particle)]
+                if len(candidate) >= MIN_KEYWORD_LENGTH:
+                    return candidate
+
+    return keyword
+
+
 def filter_stopwords(keywords: List[str]) -> List[str]:
     """
-    키워드 리스트에서 불용어 제거
+    키워드 리스트에서 불용어 제거 및 조사 정리
 
     Args:
         keywords: 필터링할 키워드 리스트
 
     Returns:
-        불용어가 제거된 키워드 리스트
+        불용어가 제거되고 조사가 정리된 키워드 리스트
     """
     filtered = []
     for kw in keywords:
@@ -102,16 +133,19 @@ def filter_stopwords(keywords: List[str]) -> List[str]:
         if not kw_stripped:
             continue
 
+        # 조사 제거
+        kw_cleaned = remove_particle(kw_stripped)
+
         # 단일 키워드인 경우 불용어 체크
-        if ' ' not in kw_stripped:
-            if not is_stopword(kw_stripped):
-                filtered.append(kw_stripped)
+        if ' ' not in kw_cleaned:
+            if not is_stopword(kw_cleaned):
+                filtered.append(kw_cleaned)
         else:
             # 다중 단어 키워드인 경우, 모든 단어가 불용어인지 체크
-            words = kw_stripped.split()
+            words = kw_cleaned.split()
             # 모든 단어가 불용어가 아닌 경우만 포함
             if not all(is_stopword(word) for word in words):
-                filtered.append(kw_stripped)
+                filtered.append(kw_cleaned)
 
     return filtered
 
