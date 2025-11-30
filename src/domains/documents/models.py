@@ -16,6 +16,7 @@ class Document(Base):
     storage_path = Column(String(1024), unique=True, nullable=False)  # MinIO 저장 경로
     file_type = Column(String(100), nullable=False)  # 파일 MIME 타입
     file_size_kb = Column(Integer)  # 파일 크기 (KB)
+    summary = Column(String(500), nullable=True)  # 문서 요약 (평서문 형식)
     uploaded_at = Column(TIMESTAMP, nullable=False, server_default=func.now())  # 업로드 일시
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), onupdate=func.now())  # 최종 수정 일시
 

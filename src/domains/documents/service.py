@@ -14,6 +14,7 @@ from src.core.minio_client import minio_client
 from src.core.text_extractor import text_extractor
 from src.core.elasticsearch_client import elasticsearch_client
 from src.core.keyword_extraction import keyword_extraction_service
+from src.core.ollama_summarizer import ollama_summarizer
 import logging
 
 logger = logging.getLogger(__name__)
@@ -124,9 +125,18 @@ class DocumentService:
                 logger.warning(f"문서 {document.document_id}에서 텍스트 추출 실패 또는 너무 짧음. 태그 생성 건너뜀.")
                 # 텍스트 추출 실패는 오류가 아니므로 commit 후 반환
                 await self.db.commit()
+                await self.db.refresh(document)
                 return document, [], "none"
 
-            # 7. Elasticsearch에 문서 색인
+            # 7. 문서 요약 생성 (Ollama 사용)
+            summary = await ollama_summarizer.summarize(extracted_text)
+            if summary:
+                document.summary = summary
+                logger.info(f"문서 요약 생성 완료: document_id={document.document_id}, summary={summary[:50]}...")
+            else:
+                logger.warning(f"문서 {document.document_id}에서 요약 생성 실패")
+
+            # 8. Elasticsearch에 문서 색인
             await elasticsearch_client.index_document(
                 document_id=document.document_id,
                 user_id=user_id,
@@ -137,7 +147,7 @@ class DocumentService:
             )
             logger.info(f"Elasticsearch 색인 완료: document_id={document.document_id}")
 
-            # 8. 하이브리드 키워드 추출 (KeyBERT or Elasticsearch)
+            # 9. 하이브리드 키워드 추출 (KeyBERT or Elasticsearch)
             keywords, extraction_method = await keyword_extraction_service.extract_keywords(
                 text=extracted_text,
                 document_id=document.document_id
@@ -147,9 +157,10 @@ class DocumentService:
                 logger.warning(f"문서 {document.document_id}에서 키워드 추출 실패. 태그 생성 건너뜀.")
                 # 키워드 추출 실패는 오류가 아니므로 commit 후 반환
                 await self.db.commit()
+                await self.db.refresh(document)
                 return document, [], extraction_method
 
-            # 9. 태그 생성 및 문서에 연결 (Get-or-Create 패턴으로 N+1 문제 방지, commit하지 않음)
+            # 10. 태그 생성 및 문서에 연결 (Get-or-Create 패턴으로 N+1 문제 방지, commit하지 않음)
             if self.tag_service:
                 tags = await self.tag_service.attach_tags_to_document(
                     document_id=document.document_id,
@@ -161,9 +172,12 @@ class DocumentService:
                 tags = []
                 logger.warning("TagService가 초기화되지 않았습니다. 태그 생성 건너뜀.")
 
-            # 10. 모든 DB 작업 성공 시 commit
+            # 11. 모든 DB 작업 성공 시 commit
             await self.db.commit()
             logger.info(f"문서 업로드 트랜잭션 commit 완료: document_id={document.document_id}")
+
+            # 12. commit 후 document 객체를 refresh하여 최신 상태 로드
+            await self.db.refresh(document)
 
             return document, tags, extraction_method
 

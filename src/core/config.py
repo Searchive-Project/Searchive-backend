@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     KEYWORD_EXTRACTION_THRESHOLD: int = 5  # Cold Start와 Normal 경로를 구분하는 문서 수 임계값
     KEYWORD_EXTRACTION_COUNT: int = 3  # 추출할 키워드 개수
 
+    # Ollama 설정
+    OLLAMA_HOST: str
+    OLLAMA_PORT: int
+    OLLAMA_MODEL: str
+
     @property
     def DATABASE_URL(self) -> str:
         """PostgreSQL 데이터베이스 URL 생성"""
@@ -83,6 +88,11 @@ class Settings(BaseSettings):
     def ELASTICSEARCH_URL(self) -> str:
         """Elasticsearch URL 생성"""
         return f"http://{self.ELASTICSEARCH_HOST}:{self.ELASTICSEARCH_PORT}"
+
+    @property
+    def OLLAMA_URL(self) -> str:
+        """Ollama API URL 생성"""
+        return f"http://{self.OLLAMA_HOST}:{self.OLLAMA_PORT}"
 
     @property
     def CORS_ORIGINS(self) -> List[str]:
