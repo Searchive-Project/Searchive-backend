@@ -108,6 +108,7 @@ async def get_documents(
             original_filename=doc.original_filename,
             file_type=doc.file_type,
             file_size_kb=doc.file_size_kb,
+            summary=doc.summary,
             uploaded_at=doc.uploaded_at,
             updated_at=doc.updated_at,
             tags=[TagSchema(tag_id=dt.tag.tag_id, name=dt.tag.name) for dt in doc.document_tags]
@@ -154,6 +155,7 @@ async def get_documents_paginated(
                 original_filename=doc.original_filename,
                 file_type=doc.file_type,
                 file_size_kb=doc.file_size_kb,
+                summary=doc.summary,
                 uploaded_at=doc.uploaded_at,
                 updated_at=doc.updated_at,
                 tags=[TagSchema(tag_id=dt.tag.tag_id, name=dt.tag.name) for dt in doc.document_tags]
@@ -211,6 +213,7 @@ async def get_document(
         storage_path=document.storage_path,
         file_type=document.file_type,
         file_size_kb=document.file_size_kb,
+        summary=document.summary,
         uploaded_at=document.uploaded_at,
         updated_at=document.updated_at,
         tags=[TagSchema(tag_id=dt.tag.tag_id, name=dt.tag.name) for dt in document.document_tags]
