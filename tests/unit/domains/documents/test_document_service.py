@@ -18,6 +18,7 @@ class TestDocumentServiceUpload:
         mock_elasticsearch_client,
         mock_text_extractor,
         mock_keyword_extraction_service,
+        mock_ollama_summarizer,
         mock_upload_file
     ):
         """문서 업로드 성공 테스트 (실제 MinIO 업로드 없음)"""
@@ -47,10 +48,11 @@ class TestDocumentServiceUpload:
         mock_tag2.name = "deep learning"
         mock_tag_service.attach_tags_to_document.return_value = [mock_tag1, mock_tag2]
 
-        # Mock DB session (commit/rollback은 async 메서드)
+        # Mock DB session (commit/rollback/refresh는 async 메서드)
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
 
         # DocumentService 생성
         document_service = DocumentService(mock_repository, db=mock_db)
@@ -60,7 +62,8 @@ class TestDocumentServiceUpload:
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
              patch('src.domains.documents.service.text_extractor', mock_text_extractor), \
              patch('src.domains.documents.service.elasticsearch_client', mock_elasticsearch_client), \
-             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service):
+             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service), \
+             patch('src.domains.documents.service.ollama_summarizer', mock_ollama_summarizer):
 
             # 테스트 실행
             document, tags, extraction_method = await document_service.upload_document(
@@ -120,6 +123,7 @@ class TestDocumentServiceUpload:
         mock_elasticsearch_client,
         mock_text_extractor,
         mock_keyword_extraction_service,
+        mock_ollama_summarizer,
     ):
         """HWP 파일 업로드 테스트"""
         from unittest.mock import AsyncMock, MagicMock
@@ -156,10 +160,11 @@ class TestDocumentServiceUpload:
         mock_tag2.name = "한글"
         mock_tag_service.attach_tags_to_document.return_value = [mock_tag1, mock_tag2]
 
-        # Mock DB session
+        # Mock DB session (commit/rollback/refresh는 async 메서드)
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
 
         # DocumentService 생성
         document_service = DocumentService(mock_repository, db=mock_db)
@@ -169,7 +174,8 @@ class TestDocumentServiceUpload:
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
              patch('src.domains.documents.service.text_extractor', mock_text_extractor), \
              patch('src.domains.documents.service.elasticsearch_client', mock_elasticsearch_client), \
-             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service):
+             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service), \
+             patch('src.domains.documents.service.ollama_summarizer', mock_ollama_summarizer):
 
             # 테스트 실행
             document, tags, extraction_method = await document_service.upload_document(
@@ -190,6 +196,7 @@ class TestDocumentServiceUpload:
         self,
         mock_minio_client,
         mock_text_extractor,
+        mock_ollama_summarizer,
         mock_upload_file
     ):
         """텍스트 추출 실패 시 태그 생성 건너뛰기 테스트"""
@@ -209,15 +216,17 @@ class TestDocumentServiceUpload:
 
         mock_repository.create.return_value = mock_document
 
-        # Mock DB session
+        # Mock DB session (commit/rollback/refresh는 async 메서드)
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
 
         document_service = DocumentService(mock_repository, db=mock_db)
 
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
-             patch('src.domains.documents.service.text_extractor', mock_text_extractor):
+             patch('src.domains.documents.service.text_extractor', mock_text_extractor), \
+             patch('src.domains.documents.service.ollama_summarizer', mock_ollama_summarizer):
 
             document, tags, extraction_method = await document_service.upload_document(
                 user_id=123,

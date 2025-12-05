@@ -184,6 +184,19 @@ def mock_keyword_extraction_service():
 
 
 @pytest.fixture
+def mock_ollama_summarizer():
+    """OllamaSummarizer Mock 픽스처"""
+    from unittest.mock import AsyncMock
+
+    mock_summarizer = AsyncMock()
+
+    # summarize 메서드 Mock - 요약 텍스트 반환
+    mock_summarizer.summarize.return_value = "This is a test summary of the document content."
+
+    return mock_summarizer
+
+
+@pytest.fixture
 def mock_upload_file():
     """FastAPI UploadFile Mock 픽스처"""
     from unittest.mock import AsyncMock, MagicMock

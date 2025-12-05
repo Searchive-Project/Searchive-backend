@@ -16,7 +16,8 @@ class TestDocumentServiceWithRealFiles:
         sample_pdf_file,
         mock_minio_client,
         mock_elasticsearch_client,
-        mock_keyword_extraction_service
+        mock_keyword_extraction_service,
+        mock_ollama_summarizer
     ):
         """실제 PDF 샘플 파일로 업로드 테스트 (MinIO/ES는 Mock)"""
         # Mock Repository
@@ -52,10 +53,11 @@ class TestDocumentServiceWithRealFiles:
             "Neural networks are the foundation of deep learning."
         )
 
-        # Mock DB session
+        # Mock DB session (commit/rollback/refresh는 async 메서드)
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
 
         # DocumentService 생성
         document_service = DocumentService(mock_repository, db=mock_db)
@@ -65,7 +67,8 @@ class TestDocumentServiceWithRealFiles:
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
              patch('src.domains.documents.service.text_extractor', mock_text_extractor), \
              patch('src.domains.documents.service.elasticsearch_client', mock_elasticsearch_client), \
-             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service):
+             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service), \
+             patch('src.domains.documents.service.ollama_summarizer', mock_ollama_summarizer):
 
             document, tags, extraction_method = await document_service.upload_document(
                 user_id=123,
@@ -86,7 +89,8 @@ class TestDocumentServiceWithRealFiles:
         sample_docx_file,
         mock_minio_client,
         mock_elasticsearch_client,
-        mock_keyword_extraction_service
+        mock_keyword_extraction_service,
+        mock_ollama_summarizer
     ):
         """실제 DOCX 샘플 파일로 업로드 테스트"""
         # Mock Repository
@@ -123,10 +127,11 @@ class TestDocumentServiceWithRealFiles:
             "Applications include computer vision and natural language processing."
         )
 
-        # Mock DB session
+        # Mock DB session (commit/rollback/refresh는 async 메서드)
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
 
         # DocumentService 생성
         document_service = DocumentService(mock_repository, db=mock_db)
@@ -136,7 +141,8 @@ class TestDocumentServiceWithRealFiles:
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
              patch('src.domains.documents.service.text_extractor', mock_text_extractor), \
              patch('src.domains.documents.service.elasticsearch_client', mock_elasticsearch_client), \
-             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service):
+             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service), \
+             patch('src.domains.documents.service.ollama_summarizer', mock_ollama_summarizer):
 
             document, tags, extraction_method = await document_service.upload_document(
                 user_id=456,
@@ -155,7 +161,8 @@ class TestDocumentServiceWithRealFiles:
         sample_txt_file,
         mock_minio_client,
         mock_elasticsearch_client,
-        mock_keyword_extraction_service
+        mock_keyword_extraction_service,
+        mock_ollama_summarizer
     ):
         """실제 TXT 샘플 파일로 업로드 테스트"""
         # Mock Repository
@@ -195,10 +202,11 @@ class TestDocumentServiceWithRealFiles:
             "Deep learning uses neural networks with multiple layers."
         )
 
-        # Mock DB session
+        # Mock DB session (commit/rollback/refresh는 async 메서드)
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
         mock_db.rollback = AsyncMock()
+        mock_db.refresh = AsyncMock()
 
         # DocumentService 생성
         document_service = DocumentService(mock_repository, db=mock_db)
@@ -208,7 +216,8 @@ class TestDocumentServiceWithRealFiles:
         with patch('src.domains.documents.service.minio_client', mock_minio_client), \
              patch('src.domains.documents.service.text_extractor', mock_text_extractor), \
              patch('src.domains.documents.service.elasticsearch_client', mock_elasticsearch_client), \
-             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service):
+             patch('src.domains.documents.service.keyword_extraction_service', mock_keyword_extraction_service), \
+             patch('src.domains.documents.service.ollama_summarizer', mock_ollama_summarizer):
 
             document, tags, extraction_method = await document_service.upload_document(
                 user_id=789,
