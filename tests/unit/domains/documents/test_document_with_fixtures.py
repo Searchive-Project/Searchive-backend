@@ -291,35 +291,35 @@ class TestTextExtractorWithRealFiles:
         assert "Deep Learning" in extracted_text
 
 
-class TestKeywordExtractionWithRealContent:
-    """실제 샘플 파일 내용으로 키워드 추출 테스트"""
-
-    @pytest.mark.asyncio
-    @pytest.mark.skip(reason="KeyBERT 모델 로딩이 너무 오래 걸려서 스킵 (필요시 수동 실행)")
-    async def test_keybert_extraction_with_sample_text(self, sample_text_content):
-        """샘플 TXT 내용으로 KeyBERT 키워드 추출 테스트"""
-        from src.core.keyword_extraction import KeyBERTExtractor
-
-        try:
-            extractor = KeyBERTExtractor()
-
-            # 실제 샘플 텍스트로 키워드 추출
-            keywords = await extractor.extract_keywords(text=sample_text_content)
-
-            # 검증: 키워드가 추출되었는지
-            assert keywords is not None
-            assert isinstance(keywords, list)
-
-            # 키워드가 추출되었다면, 의미 있는지 확인
-            if len(keywords) > 0:
-                keywords_lower = [kw.lower() for kw in keywords]
-                # 최소한 하나의 관련 키워드가 있어야 함
-                has_relevant_keyword = any(
-                    "machine" in kw or "learning" in kw or "deep" in kw or "data" in kw
-                    for kw in keywords_lower
-                )
-                # 관련 키워드가 없더라도 키워드 자체는 추출되어야 함
-                assert len(keywords) >= 0, "키워드 리스트는 비어있을 수 있지만 None이 아니어야 함"
-        except Exception as e:
-            # KeyBERT 모델 로딩 실패 등의 경우 테스트 스킵
-            pytest.skip(f"KeyBERT 테스트 스킵 (이유: {e})")
+# class TestKeywordExtractionWithRealContent:
+#     """실제 샘플 파일 내용으로 키워드 추출 테스트"""
+#
+#     @pytest.mark.asyncio
+#     @pytest.mark.skip(reason="KeyBERT 모델 로딩이 너무 오래 걸려서 스킵 (필요시 수동 실행)")
+#     async def test_keybert_extraction_with_sample_text(self, sample_text_content):
+#         """샘플 TXT 내용으로 KeyBERT 키워드 추출 테스트"""
+#         from src.core.keyword_extraction import KeyBERTExtractor
+#
+#         try:
+#             extractor = KeyBERTExtractor()
+#
+#             # 실제 샘플 텍스트로 키워드 추출
+#             keywords = await extractor.extract_keywords(text=sample_text_content)
+#
+#             # 검증: 키워드가 추출되었는지
+#             assert keywords is not None
+#             assert isinstance(keywords, list)
+#
+#             # 키워드가 추출되었다면, 의미 있는지 확인
+#             if len(keywords) > 0:
+#                 keywords_lower = [kw.lower() for kw in keywords]
+#                 # 최소한 하나의 관련 키워드가 있어야 함
+#                 has_relevant_keyword = any(
+#                     "machine" in kw or "learning" in kw or "deep" in kw or "data" in kw
+#                     for kw in keywords_lower
+#                 )
+#                 # 관련 키워드가 없더라도 키워드 자체는 추출되어야 함
+#                 assert len(keywords) >= 0, "키워드 리스트는 비어있을 수 있지만 None이 아니어야 함"
+#         except Exception as e:
+#             # KeyBERT 모델 로딩 실패 등의 경우 테스트 스킵
+#             pytest.skip(f"KeyBERT 테스트 스킵 (이유: {e})")
