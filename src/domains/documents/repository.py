@@ -144,6 +144,51 @@ class DocumentRepository:
         )
         return list(result.scalars().all())
 
+    async def find_all_by_user_id_ascending(self, user_id: int) -> List[Document]:
+        """
+        사용자 ID로 모든 문서 조회 (올림차순 정렬, 태그 포함, N+1 문제 방지)
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            Document 객체 리스트
+        """
+        result = await self.db.execute(
+            select(Document)
+            .options(selectinload(Document.document_tags).selectinload(DocumentTag.tag))
+            .where(Document.user_id == user_id)
+            .order_by(Document.uploaded_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def find_all_by_user_id_paginated_ascending(
+        self,
+        user_id: int,
+        skip: int = 0,
+        limit: int = 10
+    ) -> List[Document]:
+        """
+        사용자 ID로 문서 조회 (페이징 적용, 올림차순 정렬, 태그 포함, N+1 문제 방지)
+
+        Args:
+            user_id: 사용자 ID
+            skip: 건너뛸 항목 수
+            limit: 가져올 항목 수
+
+        Returns:
+            Document 객체 리스트
+        """
+        result = await self.db.execute(
+            select(Document)
+            .options(selectinload(Document.document_tags).selectinload(DocumentTag.tag))
+            .where(Document.user_id == user_id)
+            .order_by(Document.uploaded_at.asc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def count_by_user_id(self, user_id: int) -> int:
         """
         사용자 ID로 전체 문서 수 조회

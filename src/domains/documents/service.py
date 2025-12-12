@@ -214,7 +214,7 @@ class DocumentService:
 
     async def get_user_documents(self, user_id: int) -> List[Document]:
         """
-        사용자의 모든 문서 조회
+        사용자의 모든 문서 조회 (내림차순)
 
         Args:
             user_id: 사용자 ID
@@ -224,6 +224,18 @@ class DocumentService:
         """
         return await self.document_repository.find_all_by_user_id(user_id)
 
+    async def get_user_documents_ascending(self, user_id: int) -> List[Document]:
+        """
+        사용자의 모든 문서 조회 (올림차순)
+
+        Args:
+            user_id: 사용자 ID
+
+        Returns:
+            Document 객체 리스트
+        """
+        return await self.document_repository.find_all_by_user_id_ascending(user_id)
+
     async def get_user_documents_paginated(
         self,
         user_id: int,
@@ -231,7 +243,7 @@ class DocumentService:
         page_size: int = 10
     ) -> Dict:
         """
-        사용자의 문서 조회 (페이징 적용)
+        사용자의 문서 조회 (페이징 적용, 내림차순)
 
         Args:
             user_id: 사용자 ID
@@ -258,6 +270,57 @@ class DocumentService:
 
         # 문서 목록과 전체 개수 조회
         documents = await self.document_repository.find_all_by_user_id_paginated(
+            user_id=user_id,
+            skip=skip,
+            limit=page_size
+        )
+        total = await self.document_repository.count_by_user_id(user_id)
+
+        # 전체 페이지 수 계산
+        total_pages = math.ceil(total / page_size) if total > 0 else 0
+
+        return {
+            "documents": documents,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
+
+    async def get_user_documents_paginated_ascending(
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Dict:
+        """
+        사용자의 문서 조회 (페이징 적용, 올림차순)
+
+        Args:
+            user_id: 사용자 ID
+            page: 페이지 번호 (1부터 시작)
+            page_size: 페이지당 항목 수
+
+        Returns:
+            {
+                "documents": Document 객체 리스트,
+                "total": 전체 문서 수,
+                "page": 현재 페이지,
+                "page_size": 페이지당 항목 수,
+                "total_pages": 전체 페이지 수
+            }
+        """
+        # 페이지 번호 검증 (1부터 시작)
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 10
+
+        # skip 계산 (0부터 시작)
+        skip = (page - 1) * page_size
+
+        # 문서 목록과 전체 개수 조회
+        documents = await self.document_repository.find_all_by_user_id_paginated_ascending(
             user_id=user_id,
             skip=skip,
             limit=page_size
