@@ -332,6 +332,132 @@ Documents 도메인의 주요 API 엔드포인트입니다. 상세한 워크플�
 }
 ```
 
+#### 5. 파일명으로 문서 검색 (GET /api/v1/documents/search/filename?query={filename})
+Elasticsearch를 사용하여 파일명으로 문서를 검색합니다.
+
+**요청 예시:**
+```http
+GET /api/v1/documents/search/filename?query=report
+```
+
+**응답 (200 OK):**
+```json
+{
+  "documents": [
+    {
+      "document_id": 101,
+      "original_filename": "annual_report_2024.pdf",
+      "file_type": "application/pdf",
+      "file_size_kb": 2048,
+      "summary": "2024년도 연간 보고서입니다.",
+      "uploaded_at": "2024-01-15T10:30:00",
+      "updated_at": "2024-01-15T10:30:00",
+      "tags": [
+        {"tag_id": 5, "name": "보고서"},
+        {"tag_id": 12, "name": "재무"}
+      ]
+    }
+  ],
+  "query": "report",
+  "total": 1
+}
+```
+
+#### 6. 태그로 문서 검색 (GET /api/v1/documents/search/tags?tags={tag1,tag2})
+PostgreSQL을 사용하여 태그로 문서를 검색합니다. 여러 태그 검색 시 OR 조건으로 동작합니다.
+
+**요청 예시:**
+```http
+GET /api/v1/documents/search/tags?tags=python,fastapi
+```
+
+**응답 (200 OK):**
+```json
+{
+  "documents": [
+    {
+      "document_id": 10,
+      "original_filename": "fastapi_tutorial.pdf",
+      "file_type": "application/pdf",
+      "file_size_kb": 1024,
+      "summary": "FastAPI 프레임워크 튜토리얼 문서입니다.",
+      "uploaded_at": "2024-03-10T14:20:00",
+      "updated_at": "2024-03-10T14:20:00",
+      "tags": [
+        {"tag_id": 15, "name": "python"},
+        {"tag_id": 23, "name": "fastapi"}
+      ]
+    }
+  ],
+  "query": "python,fastapi",
+  "total": 1
+}
+```
+
+---
+
+## 🔍 문서 검색 API 상세
+
+### 기술 스펙
+
+#### 파일명 검색
+- **엔드포인트**: `GET /api/v1/documents/search/filename`
+- **검색 엔진**: Elasticsearch
+- **검색 방식**: Wildcard 쿼리 (대소문자 구분 없음, 부분 일치)
+- **Request**: Query Parameter `query` (검색할 파일명)
+- **Response**: `DocumentSearchResponse`
+
+#### 태그 검색
+- **엔드포인트**: `GET /api/v1/documents/search/tags`
+- **검색 엔진**: PostgreSQL
+- **검색 방식**: JOIN + IN 조건 (여러 태그는 OR 조건)
+- **Request**: Query Parameter `tags` (검색할 태그, 쉼표로 구분)
+- **Response**: `DocumentSearchResponse`
+
+### 사용 예시
+
+#### cURL 예시
+
+```bash
+# 파일명 검색
+curl -X GET "http://localhost:8000/api/v1/documents/search/filename?query=report" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+
+# 태그 검색 (단일)
+curl -X GET "http://localhost:8000/api/v1/documents/search/tags?tags=python" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+
+# 태그 검색 (다중)
+curl -X GET "http://localhost:8000/api/v1/documents/search/tags?tags=python,fastapi" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+```
+
+#### Python 예시
+
+```python
+import requests
+
+cookies = {"session_id": "YOUR_SESSION_ID"}
+
+# 파일명 검색
+response = requests.get(
+    "http://localhost:8000/api/v1/documents/search/filename",
+    params={"query": "report"},
+    cookies=cookies
+)
+print(response.json())
+
+# 태그 검색
+response = requests.get(
+    "http://localhost:8000/api/v1/documents/search/tags",
+    params={"tags": "python,fastapi"},
+    cookies=cookies
+)
+print(response.json())
+```
+
+**상세 구현 가이드**: [`src/domains/documents/README.md`](./src/domains/documents/README.md)
+
 ---
 
 ## 📖 개발 가이드

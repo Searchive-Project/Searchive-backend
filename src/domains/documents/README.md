@@ -150,6 +150,281 @@ class Document(Base):
 }
 ```
 
+### 5. 파일명으로 문서 검색 (GET /api/v1/documents/search/filename)
+
+Elasticsearch를 사용하여 파일명으로 문서를 검색합니다.
+
+**요청**:
+- Method: `GET`
+- Query Parameter: `query` (검색할 파일명)
+- Headers: `Cookie: session_id` (인증 필요)
+
+**요청 예시**:
+```http
+GET /api/v1/documents/search/filename?query=report
+```
+
+**응답 (200 OK)**:
+```json
+{
+  "documents": [
+    {
+      "document_id": 101,
+      "original_filename": "annual_report_2024.pdf",
+      "file_type": "application/pdf",
+      "file_size_kb": 2048,
+      "summary": "2024년도 연간 보고서입니다.",
+      "uploaded_at": "2024-01-15T10:30:00",
+      "updated_at": "2024-01-15T10:30:00",
+      "tags": [
+        {"tag_id": 5, "name": "보고서"},
+        {"tag_id": 12, "name": "재무"}
+      ]
+    }
+  ],
+  "query": "report",
+  "total": 1
+}
+```
+
+**검색 방식**:
+- Elasticsearch Wildcard 쿼리 사용 (대소문자 구분 없음)
+- 부분 일치 검색 지원 (예: "report" → "annual_report_2024.pdf")
+- 사용자별 격리 (본인이 업로드한 문서만 검색)
+
+### 6. 태그로 문서 검색 (GET /api/v1/documents/search/tags)
+
+PostgreSQL을 사용하여 태그로 문서를 검색합니다.
+
+**요청**:
+- Method: `GET`
+- Query Parameter: `tags` (검색할 태그 이름, 쉼표로 구분)
+- Headers: `Cookie: session_id` (인증 필요)
+
+**요청 예시**:
+```http
+GET /api/v1/documents/search/tags?tags=python,fastapi
+```
+
+**응답 (200 OK)**:
+```json
+{
+  "documents": [
+    {
+      "document_id": 10,
+      "original_filename": "fastapi_tutorial.pdf",
+      "file_type": "application/pdf",
+      "file_size_kb": 1024,
+      "summary": "FastAPI 프레임워크 튜토리얼 문서입니다.",
+      "uploaded_at": "2024-03-10T14:20:00",
+      "updated_at": "2024-03-10T14:20:00",
+      "tags": [
+        {"tag_id": 15, "name": "python"},
+        {"tag_id": 23, "name": "fastapi"}
+      ]
+    }
+  ],
+  "query": "python,fastapi",
+  "total": 1
+}
+```
+
+**검색 방식**:
+- PostgreSQL JOIN + IN 조건 사용
+- 여러 태그 검색 시 OR 조건 (하나 이상의 태그가 일치하면 결과에 포함)
+- 업로드 시간 내림차순 정렬
+- 사용자별 격리 (본인이 업로드한 문서만 검색)
+
+---
+
+## 🔍 문서 검색 API 상세
+
+### Request/Response DTO
+
+#### DocumentSearchResponse
+```python
+class DocumentSearchResponse(BaseModel):
+    """문서 검색 응답 스키마"""
+    documents: List[DocumentListResponse]  # 검색된 문서 목록
+    query: str                             # 검색 쿼리
+    total: int                             # 검색 결과 수
+```
+
+#### DocumentListResponse
+```python
+class DocumentListResponse(BaseModel):
+    """문서 목록 응답 스키마"""
+    document_id: int                    # 문서 고유 ID
+    original_filename: str              # 원본 파일 이름
+    file_type: str                      # 파일 MIME 타입
+    file_size_kb: int                   # 파일 크기 (KB)
+    summary: Optional[str]              # 문서 요약
+    uploaded_at: datetime               # 업로드 일시
+    updated_at: datetime                # 최종 수정 일시
+    tags: List[TagSchema]               # 태그 목록
+```
+
+#### TagSchema
+```python
+class TagSchema(BaseModel):
+    """태그 스키마"""
+    tag_id: int          # 태그 고유 ID
+    name: str            # 태그 이름
+```
+
+### 에러 응답
+
+#### 401 Unauthorized - 인증 실패
+```json
+{
+    "detail": "Not authenticated"
+}
+```
+
+#### 500 Internal Server Error - 서버 오류
+```json
+{
+    "detail": "검색 중 오류가 발생했습니다."
+}
+```
+
+### 사용 예시
+
+#### cURL
+
+**파일명 검색**:
+```bash
+curl -X GET "http://localhost:8000/api/v1/documents/search/filename?query=report" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+```
+
+**태그 검색 (단일)**:
+```bash
+curl -X GET "http://localhost:8000/api/v1/documents/search/tags?tags=python" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+```
+
+**태그 검색 (다중)**:
+```bash
+curl -X GET "http://localhost:8000/api/v1/documents/search/tags?tags=python,fastapi,웹개발" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+```
+
+#### Python (requests)
+
+```python
+import requests
+
+# 세션 쿠키
+cookies = {
+    "session_id": "YOUR_SESSION_ID"
+}
+
+# 파일명 검색
+response = requests.get(
+    "http://localhost:8000/api/v1/documents/search/filename",
+    params={"query": "report"},
+    cookies=cookies
+)
+print(response.json())
+
+# 태그 검색
+response = requests.get(
+    "http://localhost:8000/api/v1/documents/search/tags",
+    params={"tags": "python,fastapi"},
+    cookies=cookies
+)
+print(response.json())
+```
+
+#### JavaScript (Axios)
+
+```javascript
+const axios = require('axios');
+
+const config = {
+    headers: {
+        'Cookie': 'session_id=YOUR_SESSION_ID'
+    }
+};
+
+// 파일명 검색
+axios.get('http://localhost:8000/api/v1/documents/search/filename', {
+    params: { query: 'report' },
+    ...config
+})
+.then(response => console.log(response.data))
+.catch(error => console.error(error));
+
+// 태그 검색
+axios.get('http://localhost:8000/api/v1/documents/search/tags', {
+    params: { tags: 'python,fastapi' },
+    ...config
+})
+.then(response => console.log(response.data))
+.catch(error => console.error(error));
+```
+
+### 검색 구현 상세
+
+#### 파일명 검색 기술 스펙
+- **검색 엔진**: Elasticsearch
+- **검색 방식**: Wildcard 쿼리 (대소문자 구분 없음)
+- **검색 필드**: `filename` (keyword 타입)
+- **필터**: `user_id` (현재 로그인한 사용자의 문서만 검색)
+- **인덱스**: `documents`
+
+**Elasticsearch 쿼리 예시**:
+```json
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "wildcard": {
+            "filename": {
+              "value": "*report*",
+              "case_insensitive": true
+            }
+          }
+        }
+      ],
+      "filter": [
+        {"term": {"user_id": 1}}
+      ]
+    }
+  }
+}
+```
+
+#### 태그 검색 기술 스펙
+- **검색 엔진**: PostgreSQL
+- **검색 방식**: JOIN + IN 조건
+- **검색 로직**:
+  - 여러 태그 입력 시 OR 조건 (하나 이상의 태그가 일치하면 반환)
+  - 쉼표로 구분된 태그를 파싱하여 리스트로 변환
+- **필터**: `user_id` (현재 로그인한 사용자의 문서만 검색)
+- **정렬**: 업로드 시간 내림차순
+
+**SQL 쿼리 예시**:
+```sql
+SELECT DISTINCT d.*
+FROM documents d
+JOIN document_tags dt ON d.document_id = dt.document_id
+JOIN tags t ON dt.tag_id = t.tag_id
+WHERE d.user_id = 1
+  AND t.name IN ('python', 'fastapi')
+ORDER BY d.uploaded_at DESC;
+```
+
+### 주의사항
+
+1. **인증 필수**: 모든 검색 API는 세션 인증이 필요합니다.
+2. **사용자 격리**: 각 사용자는 자신이 업로드한 문서만 검색할 수 있습니다.
+3. **대소문자**: 파일명 검색은 대소문자를 구분하지 않습니다.
+4. **태그 OR 조건**: 여러 태그로 검색 시 하나 이상의 태그가 일치하면 결과에 포함됩니다.
+5. **빈 결과**: 검색 결과가 없어도 200 OK를 반환하며, `documents` 배열이 비어있습니다.
+
 ---
 
 ## 🔄 문서 업로드 워크플로우 (9단계)
