@@ -222,3 +222,34 @@ class DocumentRepository:
         except Exception:
             await self.db.rollback()
             return False
+
+    async def find_by_tag_names(
+        self,
+        user_id: int,
+        tag_names: List[str]
+    ) -> List[Document]:
+        """
+        태그 이름으로 문서 검색 (태그 포함, N+1 문제 방지)
+
+        Args:
+            user_id: 사용자 ID
+            tag_names: 검색할 태그 이름 리스트
+
+        Returns:
+            Document 객체 리스트
+        """
+        from src.domains.tags.models import Tag
+
+        result = await self.db.execute(
+            select(Document)
+            .options(selectinload(Document.document_tags).selectinload(DocumentTag.tag))
+            .join(DocumentTag, Document.document_id == DocumentTag.document_id)
+            .join(Tag, DocumentTag.tag_id == Tag.tag_id)
+            .where(
+                Document.user_id == user_id,
+                Tag.name.in_(tag_names)
+            )
+            .distinct()
+            .order_by(Document.uploaded_at.desc())
+        )
+        return list(result.scalars().all())

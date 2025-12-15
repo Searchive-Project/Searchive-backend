@@ -12,7 +12,8 @@ from src.domains.documents.schema import (
     DocumentListResponse,
     DocumentDetailResponse,
     DocumentDeleteResponse,
-    PaginatedDocumentListResponse
+    PaginatedDocumentListResponse,
+    DocumentSearchResponse
 )
 from src.core.security import get_current_user_id
 
@@ -349,4 +350,111 @@ async def delete_document(
     return DocumentDeleteResponse(
         message="문서가 성공적으로 삭제되었습니다.",
         document_id=document_id
+    )
+
+
+@router.get(
+    "/search/filename",
+    response_model=DocumentSearchResponse,
+    summary="문서 이름으로 검색"
+)
+async def search_documents_by_filename(
+    query: str,
+    user_id: int = Depends(get_current_user_id),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    파일명으로 문서를 검색합니다. (Elasticsearch 사용)
+
+    Args:
+        query: 검색 쿼리 (파일명)
+        user_id: get_current_user_id 의존성에서 주입된 사용자 ID
+        document_service: DocumentService 의존성 주입
+
+    Returns:
+        DocumentSearchResponse: 검색된 문서 목록
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"파일명 검색 요청: user_id={user_id}, query={query}")
+
+    documents = await document_service.search_documents_by_filename(
+        user_id=user_id,
+        query=query
+    )
+
+    from src.domains.documents.schema import TagSchema
+
+    return DocumentSearchResponse(
+        documents=[
+            DocumentListResponse(
+                document_id=doc.document_id,
+                original_filename=doc.original_filename,
+                file_type=doc.file_type,
+                file_size_kb=doc.file_size_kb,
+                summary=doc.summary,
+                uploaded_at=doc.uploaded_at,
+                updated_at=doc.updated_at,
+                tags=[TagSchema(tag_id=dt.tag.tag_id, name=dt.tag.name) for dt in doc.document_tags]
+            )
+            for doc in documents
+        ],
+        query=query,
+        total=len(documents)
+    )
+
+
+@router.get(
+    "/search/tags",
+    response_model=DocumentSearchResponse,
+    summary="태그로 문서 검색"
+)
+async def search_documents_by_tags(
+    tags: str,
+    user_id: int = Depends(get_current_user_id),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    """
+    태그로 문서를 검색합니다. (PostgreSQL 사용)
+
+    Args:
+        tags: 검색할 태그 이름 (쉼표로 구분, 예: "python,fastapi")
+        user_id: get_current_user_id 의존성에서 주입된 사용자 ID
+        document_service: DocumentService 의존성 주입
+
+    Returns:
+        DocumentSearchResponse: 검색된 문서 목록
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 쉼표로 구분된 태그를 리스트로 변환
+    tag_names = [tag.strip() for tag in tags.split(",") if tag.strip()]
+
+    logger.info(f"태그 검색 요청: user_id={user_id}, tags={tag_names}")
+
+    documents = await document_service.search_documents_by_tags(
+        user_id=user_id,
+        tag_names=tag_names
+    )
+
+    from src.domains.documents.schema import TagSchema
+
+    return DocumentSearchResponse(
+        documents=[
+            DocumentListResponse(
+                document_id=doc.document_id,
+                original_filename=doc.original_filename,
+                file_type=doc.file_type,
+                file_size_kb=doc.file_size_kb,
+                summary=doc.summary,
+                uploaded_at=doc.uploaded_at,
+                updated_at=doc.updated_at,
+                tags=[TagSchema(tag_id=dt.tag.tag_id, name=dt.tag.name) for dt in doc.document_tags]
+            )
+            for doc in documents
+        ],
+        query=tags,
+        total=len(documents)
     )

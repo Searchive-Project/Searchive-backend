@@ -679,6 +679,103 @@ class ElasticsearchClient:
             logger.error(f"Elasticsearch 태그 삭제 실패: {e}", exc_info=True)
             return False
 
+    async def search_documents_by_filename(
+        self,
+        user_id: int,
+        query: str,
+        size: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        파일명으로 문서 검색
+
+        Args:
+            user_id: 사용자 ID
+            query: 검색 쿼리 (파일명)
+            size: 반환할 최대 결과 수
+
+        Returns:
+            검색된 문서 리스트 [{"document_id": int, "filename": str, "score": float}, ...]
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            # 파일명 검색 쿼리 (wildcard 사용)
+            search_query = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "wildcard": {
+                                    "filename": {
+                                        "value": f"*{query}*",
+                                        "case_insensitive": True
+                                    }
+                                }
+                            }
+                        ],
+                        "filter": [
+                            {"term": {"user_id": user_id}}
+                        ]
+                    }
+                }
+            }
+
+            result = await self.client.search(
+                index=self.index_name,
+                body=search_query,
+                size=size
+            )
+
+            # 결과 파싱
+            documents = []
+            for hit in result["hits"]["hits"]:
+                documents.append({
+                    "document_id": hit["_source"]["document_id"],
+                    "filename": hit["_source"]["filename"],
+                    "file_type": hit["_source"]["file_type"],
+                    "uploaded_at": hit["_source"]["uploaded_at"],
+                    "score": hit["_score"]
+                })
+
+            logger.info(f"파일명 검색 완료: user_id={user_id}, query={query}, {len(documents)}개 발견")
+            return documents
+
+        except Exception as e:
+            logger.error(f"파일명 검색 실패: {e}", exc_info=True)
+            return []
+
+    async def search_documents_by_tags(
+        self,
+        user_id: int,
+        tag_names: List[str],
+        size: int = 10
+    ) -> List[int]:
+        """
+        태그로 문서 검색 (문서 ID 리스트 반환)
+
+        Args:
+            user_id: 사용자 ID
+            tag_names: 검색할 태그 이름 리스트
+            size: 반환할 최대 결과 수
+
+        Returns:
+            검색된 문서 ID 리스트
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            # 태그는 Elasticsearch의 documents 인덱스에 직접 저장되지 않으므로
+            # 이 메서드는 단순히 태그 필터링을 위한 플레이스홀더입니다.
+            # 실제 태그 검색은 PostgreSQL을 통해 이루어집니다.
+            logger.info(f"태그 검색: user_id={user_id}, tags={tag_names}")
+            return []
+
+        except Exception as e:
+            logger.error(f"태그 검색 실패: {e}", exc_info=True)
+            return []
+
 
 # 전역 Elasticsearch 클라이언트 인스턴스
 elasticsearch_client = ElasticsearchClient()

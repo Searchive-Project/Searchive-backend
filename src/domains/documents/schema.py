@@ -80,3 +80,13 @@ class PaginatedDocumentListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DocumentSearchResponse(BaseModel):
+    """문서 검색 응답 스키마"""
+    documents: List[DocumentListResponse] = Field(..., description="검색된 문서 목록")
+    query: str = Field(..., description="검색 쿼리")
+    total: int = Field(..., description="검색 결과 수")
+
+    class Config:
+        from_attributes = True

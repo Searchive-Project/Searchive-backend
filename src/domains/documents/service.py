@@ -415,3 +415,66 @@ class DocumentService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="문서 삭제 중 오류가 발생했습니다."
             )
+
+    async def search_documents_by_filename(
+        self,
+        user_id: int,
+        query: str
+    ) -> List[Document]:
+        """
+        파일명으로 문서 검색 (Elasticsearch 사용)
+
+        Args:
+            user_id: 사용자 ID
+            query: 검색 쿼리 (파일명)
+
+        Returns:
+            Document 객체 리스트
+        """
+        # Elasticsearch에서 파일명 검색
+        search_results = await elasticsearch_client.search_documents_by_filename(
+            user_id=user_id,
+            query=query
+        )
+
+        if not search_results:
+            logger.info(f"파일명 검색 결과 없음: user_id={user_id}, query={query}")
+            return []
+
+        # Elasticsearch에서 반환된 document_id 리스트로 DB에서 문서 조회
+        document_ids = [result["document_id"] for result in search_results]
+
+        documents = []
+        for document_id in document_ids:
+            document = await self.document_repository.find_by_id_and_user_id(
+                document_id=document_id,
+                user_id=user_id
+            )
+            if document:
+                documents.append(document)
+
+        logger.info(f"파일명 검색 완료: {len(documents)}개 문서 발견")
+        return documents
+
+    async def search_documents_by_tags(
+        self,
+        user_id: int,
+        tag_names: List[str]
+    ) -> List[Document]:
+        """
+        태그로 문서 검색 (PostgreSQL 사용)
+
+        Args:
+            user_id: 사용자 ID
+            tag_names: 검색할 태그 이름 리스트
+
+        Returns:
+            Document 객체 리스트
+        """
+        documents = await self.document_repository.find_by_tag_names(
+            user_id=user_id,
+            tag_names=tag_names
+        )
+
+        logger.info(f"태그 검색 완료: {len(documents)}개 문서 발견")
+        return documents
