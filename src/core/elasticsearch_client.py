@@ -700,20 +700,35 @@ class ElasticsearchClient:
             await self.connect()
 
         try:
-            # 파일명 검색 쿼리 (wildcard 사용)
+            # 파일명 검색 쿼리 (하이브리드: wildcard + fuzzy)
             search_query = {
                 "query": {
                     "bool": {
-                        "must": [
+                        "should": [
+                            # 1. Wildcard 쿼리: 부분 일치 (높은 가중치)
                             {
                                 "wildcard": {
                                     "filename": {
                                         "value": f"*{query}*",
-                                        "case_insensitive": True
+                                        "case_insensitive": True,
+                                        "boost": 2.0  # 정확한 부분 일치에 높은 점수
+                                    }
+                                }
+                            },
+                            # 2. Fuzzy 쿼리: 오타 보정 (낮은 가중치)
+                            {
+                                "fuzzy": {
+                                    "filename": {
+                                        "value": query,
+                                        "fuzziness": "AUTO",  # 자동으로 편집 거리 결정 (1-2글자)
+                                        "prefix_length": 0,   # 접두사 일치 필요 없음
+                                        "max_expansions": 50, # 최대 확장 수
+                                        "boost": 1.0          # 오타 보정에 낮은 점수
                                     }
                                 }
                             }
                         ],
+                        "minimum_should_match": 1,  # 최소 1개 조건 만족
                         "filter": [
                             {"term": {"user_id": user_id}}
                         ]
