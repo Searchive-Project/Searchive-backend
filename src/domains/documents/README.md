@@ -187,9 +187,12 @@ GET /api/v1/documents/search/filename?query=report
 }
 ```
 
-**검색 방식**:
-- Elasticsearch Wildcard 쿼리 사용 (대소문자 구분 없음)
-- 부분 일치 검색 지원 (예: "report" → "annual_report_2024.pdf")
+**검색 방식** (하이브리드: Wildcard + Fuzzy):
+- **Wildcard 쿼리**: 부분 일치 검색 (대소문자 구분 없음, 높은 가중치)
+  - 예: "report" → "annual_report_2024.pdf" ✅
+- **Fuzzy 쿼리**: 오타 보정 검색 (1-2글자 차이 허용, 낮은 가중치)
+  - 예: "reprot" → "report" ✅ (1글자 오타)
+  - 예: "rprt" → "report" ✅ (2글자 오타)
 - 사용자별 격리 (본인이 업로드한 문서만 검색)
 
 ### 6. 태그로 문서 검색 (GET /api/v1/documents/search/tags)
@@ -369,26 +372,38 @@ axios.get('http://localhost:8000/api/v1/documents/search/tags', {
 
 #### 파일명 검색 기술 스펙
 - **검색 엔진**: Elasticsearch
-- **검색 방식**: Wildcard 쿼리 (대소문자 구분 없음)
+- **검색 방식**: 하이브리드 (Wildcard + Fuzzy)
 - **검색 필드**: `filename` (keyword 타입)
 - **필터**: `user_id` (현재 로그인한 사용자의 문서만 검색)
 - **인덱스**: `documents`
+- **오타 보정**: 최대 1-2글자 차이 허용 (AUTO fuzziness)
 
 **Elasticsearch 쿼리 예시**:
 ```json
 {
   "query": {
     "bool": {
-      "must": [
+      "should": [
         {
           "wildcard": {
             "filename": {
               "value": "*report*",
-              "case_insensitive": true
+              "case_insensitive": true,
+              "boost": 2.0
+            }
+          }
+        },
+        {
+          "fuzzy": {
+            "filename": {
+              "value": "report",
+              "fuzziness": "AUTO",
+              "boost": 1.0
             }
           }
         }
       ],
+      "minimum_should_match": 1,
       "filter": [
         {"term": {"user_id": 1}}
       ]
@@ -396,6 +411,12 @@ axios.get('http://localhost:8000/api/v1/documents/search/tags', {
   }
 }
 ```
+
+**검색 예시**:
+- `"report"` → "annual_report_2024.pdf" (부분 일치)
+- `"reprot"` → "annual_report_2024.pdf" (오타 보정: 1글자 차이)
+- `"annu"` → "annual_report_2024.pdf" (부분 일치)
+- `"rprt"` → "report.pdf" (오타 보정: 2글자 차이)
 
 #### 태그 검색 기술 스펙
 - **검색 엔진**: PostgreSQL

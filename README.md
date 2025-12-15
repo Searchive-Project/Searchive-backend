@@ -403,7 +403,9 @@ GET /api/v1/documents/search/tags?tags=python,fastapi
 #### 파일명 검색
 - **엔드포인트**: `GET /api/v1/documents/search/filename`
 - **검색 엔진**: Elasticsearch
-- **검색 방식**: Wildcard 쿼리 (대소문자 구분 없음, 부분 일치)
+- **검색 방식**: 하이브리드 (Wildcard + Fuzzy)
+  - Wildcard: 부분 일치 검색 (높은 가중치)
+  - Fuzzy: 오타 보정 검색 (1-2글자 차이 허용)
 - **Request**: Query Parameter `query` (검색할 파일명)
 - **Response**: `DocumentSearchResponse`
 
