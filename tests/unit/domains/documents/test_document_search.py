@@ -148,7 +148,7 @@ class TestDocumentSearchByTags:
 
     @pytest.mark.asyncio
     async def test_search_by_tags_single_tag(self):
-        """단일 태그 검색 테스트"""
+        """단일 태그 유사도 검색 테스트"""
         # Mock Repository
         mock_repository = AsyncMock()
 
@@ -171,30 +171,49 @@ class TestDocumentSearchByTags:
 
         mock_document.document_tags = [MagicMock(tag=mock_tag)]
 
-        # Repository Mock 설정
-        mock_repository.find_by_tag_names.return_value = [mock_document]
+        # Repository Mock 설정 (find_by_tag_ids 사용)
+        mock_repository.find_by_tag_ids.return_value = [mock_document]
+
+        # Mock 임베딩
+        mock_embedding = MagicMock()
+
+        # Mock Elasticsearch 유사도 검색 결과
+        mock_batch_results = [
+            [  # "python" 검색 결과
+                {"tag_id": 15, "name": "python", "score": 1.0},
+                {"tag_id": 16, "name": "Python", "score": 0.99}
+            ]
+        ]
 
         # Service 생성
         service = DocumentService(mock_repository, db=MagicMock())
 
-        # 태그 검색 실행
-        documents = await service.search_documents_by_tags(
-            user_id=123,
-            tag_names=["python"]
-        )
+        with patch('src.core.embedding_service.embedding_service') as mock_emb, \
+             patch('src.core.elasticsearch_client.elasticsearch_client') as mock_es:
+
+            mock_emb.encode.return_value = mock_embedding
+            mock_es.search_similar_tags_batch = AsyncMock(return_value=mock_batch_results)
+
+            # 태그 검색 실행
+            documents = await service.search_documents_by_tags(
+                user_id=123,
+                tag_names=["python"]
+            )
 
         # 검증
         assert len(documents) == 1
         assert documents[0].document_id == 10
         assert documents[0].original_filename == "fastapi_tutorial.pdf"
-        mock_repository.find_by_tag_names.assert_called_once_with(
-            user_id=123,
-            tag_names=["python"]
-        )
+
+        # find_by_tag_ids가 호출되었는지 확인 (순서 무관)
+        mock_repository.find_by_tag_ids.assert_called_once()
+        call_args = mock_repository.find_by_tag_ids.call_args
+        assert call_args.kwargs['user_id'] == 123
+        assert set(call_args.kwargs['tag_ids']) == {15, 16}
 
     @pytest.mark.asyncio
     async def test_search_by_tags_multiple_tags(self):
-        """다중 태그 검색 테스트 (OR 조건)"""
+        """다중 태그 유사도 검색 테스트 (OR 조건)"""
         # Mock Repository
         mock_repository = AsyncMock()
 
@@ -210,50 +229,63 @@ class TestDocumentSearchByTags:
         mock_doc2.document_tags = []
 
         # Repository Mock 설정
-        mock_repository.find_by_tag_names.return_value = [mock_doc1, mock_doc2]
+        mock_repository.find_by_tag_ids.return_value = [mock_doc1, mock_doc2]
+
+        # Mock Elasticsearch 배치 유사도 검색 결과
+        mock_batch_results = [
+            [{"tag_id": 1, "name": "python", "score": 1.0}],  # "python" 검색 결과
+            [{"tag_id": 2, "name": "fastapi", "score": 1.0}]  # "fastapi" 검색 결과
+        ]
 
         # Service 생성
         service = DocumentService(mock_repository, db=MagicMock())
 
-        # 태그 검색 실행 (여러 태그)
-        documents = await service.search_documents_by_tags(
-            user_id=123,
-            tag_names=["python", "fastapi"]
-        )
+        with patch('src.core.embedding_service.embedding_service') as mock_emb, \
+             patch('src.core.elasticsearch_client.elasticsearch_client') as mock_es:
+
+            mock_emb.encode.return_value = MagicMock()
+            mock_es.search_similar_tags_batch = AsyncMock(return_value=mock_batch_results)
+
+            # 태그 검색 실행 (여러 태그)
+            documents = await service.search_documents_by_tags(
+                user_id=123,
+                tag_names=["python", "fastapi"]
+            )
 
         # 검증
         assert len(documents) == 2
         assert documents[0].document_id == 10
         assert documents[1].document_id == 15
-        mock_repository.find_by_tag_names.assert_called_once_with(
-            user_id=123,
-            tag_names=["python", "fastapi"]
-        )
+        mock_repository.find_by_tag_ids.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_search_by_tags_no_results(self):
-        """태그 검색 결과 없음 테스트"""
+        """태그 유사도 검색 결과 없음 테스트"""
         # Mock Repository
         mock_repository = AsyncMock()
 
-        # Repository Mock 설정 (빈 결과)
-        mock_repository.find_by_tag_names.return_value = []
+        # Mock Elasticsearch 배치 검색 결과 (유사 태그 없음)
+        mock_batch_results = [[]]  # 빈 결과
 
         # Service 생성
         service = DocumentService(mock_repository, db=MagicMock())
 
-        # 태그 검색 실행
-        documents = await service.search_documents_by_tags(
-            user_id=123,
-            tag_names=["nonexistent_tag"]
-        )
+        with patch('src.core.embedding_service.embedding_service') as mock_emb, \
+             patch('src.core.elasticsearch_client.elasticsearch_client') as mock_es:
+
+            mock_emb.encode.return_value = MagicMock()
+            mock_es.search_similar_tags_batch = AsyncMock(return_value=mock_batch_results)
+
+            # 태그 검색 실행
+            documents = await service.search_documents_by_tags(
+                user_id=123,
+                tag_names=["nonexistent_tag"]
+            )
 
         # 검증
         assert len(documents) == 0
-        mock_repository.find_by_tag_names.assert_called_once_with(
-            user_id=123,
-            tag_names=["nonexistent_tag"]
-        )
+        # 유사 태그가 없으므로 find_by_tag_ids가 호출되지 않아야 함
+        mock_repository.find_by_tag_ids.assert_not_called()
 
 
 class TestElasticsearchFilenameSearch:
@@ -313,9 +345,9 @@ class TestRepositoryTagSearch:
     """Repository 태그 검색 테스트"""
 
     @pytest.mark.asyncio
-    async def test_repository_find_by_tag_names(self):
-        """Repository 태그 이름으로 문서 검색 테스트"""
-        # Mock Repository 직접 테스트 대신 Service 레벨에서 테스트
+    async def test_repository_find_by_tag_ids(self):
+        """Repository 태그 ID로 문서 검색 테스트 (유사도 검색)"""
+        # Mock Repository
         mock_repository = AsyncMock()
 
         # Mock Document 객체
@@ -325,21 +357,30 @@ class TestRepositoryTagSearch:
         mock_document.document_tags = []
 
         # Repository Mock 설정
-        mock_repository.find_by_tag_names.return_value = [mock_document]
+        mock_repository.find_by_tag_ids.return_value = [mock_document]
+
+        # Mock Elasticsearch 배치 검색 결과
+        mock_batch_results = [
+            [{"tag_id": 1, "name": "python", "score": 1.0}],
+            [{"tag_id": 2, "name": "fastapi", "score": 1.0}]
+        ]
 
         # Service 생성
         service = DocumentService(mock_repository, db=MagicMock())
 
-        # 태그로 검색
-        documents = await service.search_documents_by_tags(
-            user_id=123,
-            tag_names=["python", "fastapi"]
-        )
+        with patch('src.core.embedding_service.embedding_service') as mock_emb, \
+             patch('src.core.elasticsearch_client.elasticsearch_client') as mock_es:
+
+            mock_emb.encode.return_value = MagicMock()
+            mock_es.search_similar_tags_batch = AsyncMock(return_value=mock_batch_results)
+
+            # 태그로 검색
+            documents = await service.search_documents_by_tags(
+                user_id=123,
+                tag_names=["python", "fastapi"]
+            )
 
         # 검증
         assert len(documents) == 1
         assert documents[0].document_id == 1
-        mock_repository.find_by_tag_names.assert_called_once_with(
-            user_id=123,
-            tag_names=["python", "fastapi"]
-        )
+        mock_repository.find_by_tag_ids.assert_called_once()

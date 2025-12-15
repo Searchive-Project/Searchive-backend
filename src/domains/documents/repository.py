@@ -253,3 +253,34 @@ class DocumentRepository:
             .order_by(Document.uploaded_at.desc())
         )
         return list(result.scalars().all())
+
+    async def find_by_tag_ids(
+        self,
+        user_id: int,
+        tag_ids: List[int]
+    ) -> List[Document]:
+        """
+        태그 ID 리스트로 문서 검색 (유사도 검색용, 태그 포함, N+1 문제 방지)
+
+        Args:
+            user_id: 사용자 ID
+            tag_ids: 검색할 태그 ID 리스트
+
+        Returns:
+            Document 객체 리스트
+        """
+        if not tag_ids:
+            return []
+
+        result = await self.db.execute(
+            select(Document)
+            .options(selectinload(Document.document_tags).selectinload(DocumentTag.tag))
+            .join(DocumentTag, Document.document_id == DocumentTag.document_id)
+            .where(
+                Document.user_id == user_id,
+                DocumentTag.tag_id.in_(tag_ids)
+            )
+            .distinct()
+            .order_by(Document.uploaded_at.desc())
+        )
+        return list(result.scalars().all())

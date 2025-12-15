@@ -459,22 +459,63 @@ class DocumentService:
     async def search_documents_by_tags(
         self,
         user_id: int,
-        tag_names: List[str]
+        tag_names: List[str],
+        similarity_threshold: float = 0.8,
+        max_similar_tags: int = 5
     ) -> List[Document]:
         """
-        태그로 문서 검색 (PostgreSQL 사용)
+        태그로 문서 검색 (유사도 기반 검색)
 
         Args:
             user_id: 사용자 ID
             tag_names: 검색할 태그 이름 리스트
+            similarity_threshold: 유사도 임계값 (기본값: 0.8)
+            max_similar_tags: 각 검색어당 최대 유사 태그 수 (기본값: 5)
 
         Returns:
             Document 객체 리스트
         """
-        documents = await self.document_repository.find_by_tag_names(
+        if not tag_names:
+            logger.warning("검색할 태그 이름이 없습니다.")
+            return []
+
+        # 1. 각 검색어에 대해 임베딩 생성
+        from src.core.embedding_service import embedding_service
+        embeddings = [embedding_service.encode(tag_name) for tag_name in tag_names]
+        logger.info(f"임베딩 생성 완료: {len(embeddings)}개")
+
+        # 2. Elasticsearch 배치 유사도 검색
+        from src.core.elasticsearch_client import elasticsearch_client
+        embedding_lists = [emb.tolist() for emb in embeddings]
+
+        batch_results = await elasticsearch_client.search_similar_tags_batch(
+            embeddings=embedding_lists,
+            threshold=similarity_threshold,
+            size=max_similar_tags
+        )
+        logger.info(f"유사 태그 배치 검색 완료: {len(batch_results)}개 쿼리 처리")
+
+        # 3. 모든 유사 태그 ID 수집 (중복 제거)
+        similar_tag_ids = set()
+        for i, tag_name in enumerate(tag_names):
+            similar_tags = batch_results[i]
+            if similar_tags:
+                tag_ids = [tag["tag_id"] for tag in similar_tags]
+                similar_tag_ids.update(tag_ids)
+                logger.info(f"검색어 '{tag_name}': {len(similar_tags)}개 유사 태그 발견 (IDs: {tag_ids})")
+            else:
+                logger.info(f"검색어 '{tag_name}': 유사 태그 없음")
+
+        if not similar_tag_ids:
+            logger.info("유사 태그가 하나도 없습니다. 빈 결과 반환")
+            return []
+
+        # 4. 태그 ID로 문서 조회
+        similar_tag_ids_list = list(similar_tag_ids)
+        documents = await self.document_repository.find_by_tag_ids(
             user_id=user_id,
-            tag_names=tag_names
+            tag_ids=similar_tag_ids_list
         )
 
-        logger.info(f"태그 검색 완료: {len(documents)}개 문서 발견")
+        logger.info(f"태그 유사도 검색 완료: {len(documents)}개 문서 발견 (태그 IDs: {similar_tag_ids_list})")
         return documents
