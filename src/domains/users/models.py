@@ -17,6 +17,7 @@ class User(Base):
 
     # 관계 설정
     documents = relationship("Document", back_populates="owner", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="owner", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(user_id={self.user_id}, kakao_id={self.kakao_id})>"
