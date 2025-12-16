@@ -8,6 +8,18 @@ from datetime import datetime
 from src.main import app
 from src.domains.documents.models import Document
 from src.domains.tags.models import Tag, DocumentTag
+from src.core.security import get_current_session_data, get_current_user_id
+
+
+# 테스트용 인증 override 함수
+async def override_get_current_session_data():
+    """테스트용 세션 데이터 반환"""
+    return {"user_id": 123}
+
+
+async def override_get_current_user_id():
+    """테스트용 user_id 반환"""
+    return 123
 
 
 class TestDocumentSearchFilenameAPI:
@@ -15,6 +27,10 @@ class TestDocumentSearchFilenameAPI:
 
     def test_search_by_filename_success(self):
         """파일명 검색 API 성공 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock 데이터
@@ -38,8 +54,7 @@ class TestDocumentSearchFilenameAPI:
         mock_document.document_tags = [mock_doc_tag]
 
         # Mock Service
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = [mock_document]
@@ -49,6 +64,9 @@ class TestDocumentSearchFilenameAPI:
                 "/api/v1/documents/search/filename",
                 params={"query": "report"}
             )
+
+        # Dependency override 정리
+        app.dependency_overrides.clear()
 
         # 검증
         assert response.status_code == 200
@@ -63,11 +81,14 @@ class TestDocumentSearchFilenameAPI:
 
     def test_search_by_filename_no_results(self):
         """파일명 검색 API 결과 없음 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock Service (빈 결과)
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = []
@@ -78,6 +99,9 @@ class TestDocumentSearchFilenameAPI:
                 params={"query": "nonexistent"}
             )
 
+        # Dependency override 정리
+        app.dependency_overrides.clear()
+
         # 검증
         assert response.status_code == 200
         data = response.json()
@@ -87,23 +111,24 @@ class TestDocumentSearchFilenameAPI:
 
     def test_search_by_filename_unauthorized(self):
         """파일명 검색 API 인증 실패 테스트"""
+        # Dependency override 설정하지 않음 (인증 실패 테스트)
         client = TestClient(app)
 
-        # Mock 인증 실패
-        with patch('src.domains.documents.controller.get_current_user_id',
-                   side_effect=Exception("Not authenticated")):
-
-            # API 호출
-            response = client.get(
-                "/api/v1/documents/search/filename",
-                params={"query": "report"}
-            )
+        # API 호출
+        response = client.get(
+            "/api/v1/documents/search/filename",
+            params={"query": "report"}
+        )
 
         # 검증 (인증 실패)
-        assert response.status_code in [401, 500]
+        assert response.status_code == 401
 
     def test_search_by_filename_multiple_results(self):
         """파일명 검색 API 다중 결과 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock 데이터 (여러 문서)
@@ -128,8 +153,7 @@ class TestDocumentSearchFilenameAPI:
         mock_doc2.document_tags = []
 
         # Mock Service
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = [mock_doc1, mock_doc2]
@@ -139,6 +163,9 @@ class TestDocumentSearchFilenameAPI:
                 "/api/v1/documents/search/filename",
                 params={"query": "report"}
             )
+
+        # Dependency override 정리
+        app.dependency_overrides.clear()
 
         # 검증
         assert response.status_code == 200
@@ -152,6 +179,10 @@ class TestDocumentSearchTagsAPI:
 
     def test_search_by_tags_single_tag(self):
         """단일 태그 검색 API 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock 데이터
@@ -175,8 +206,7 @@ class TestDocumentSearchTagsAPI:
         mock_document.document_tags = [mock_doc_tag]
 
         # Mock Service
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = [mock_document]
@@ -186,6 +216,9 @@ class TestDocumentSearchTagsAPI:
                 "/api/v1/documents/search/tags",
                 params={"tags": "python"}
             )
+
+        # Dependency override 정리
+        app.dependency_overrides.clear()
 
         # 검증
         assert response.status_code == 200
@@ -199,6 +232,10 @@ class TestDocumentSearchTagsAPI:
 
     def test_search_by_tags_multiple_tags(self):
         """다중 태그 검색 API 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock 데이터
@@ -229,8 +266,7 @@ class TestDocumentSearchTagsAPI:
         mock_document.document_tags = [mock_doc_tag1, mock_doc_tag2]
 
         # Mock Service
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = [mock_document]
@@ -240,6 +276,9 @@ class TestDocumentSearchTagsAPI:
                 "/api/v1/documents/search/tags",
                 params={"tags": "python,fastapi"}
             )
+
+        # Dependency override 정리
+        app.dependency_overrides.clear()
 
         # 검증
         assert response.status_code == 200
@@ -251,11 +290,14 @@ class TestDocumentSearchTagsAPI:
 
     def test_search_by_tags_no_results(self):
         """태그 검색 API 결과 없음 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock Service (빈 결과)
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = []
@@ -266,6 +308,9 @@ class TestDocumentSearchTagsAPI:
                 params={"tags": "nonexistent_tag"}
             )
 
+        # Dependency override 정리
+        app.dependency_overrides.clear()
+
         # 검증
         assert response.status_code == 200
         data = response.json()
@@ -275,11 +320,14 @@ class TestDocumentSearchTagsAPI:
 
     def test_search_by_tags_with_spaces(self):
         """태그 검색 API 공백 포함 태그 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # Mock Service
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
                    new_callable=AsyncMock) as mock_search:
 
             mock_search.return_value = []
@@ -289,6 +337,9 @@ class TestDocumentSearchTagsAPI:
                 "/api/v1/documents/search/tags",
                 params={"tags": "python, fastapi, 웹개발"}
             )
+
+        # Dependency override 정리
+        app.dependency_overrides.clear()
 
         # 검증
         assert response.status_code == 200
@@ -303,11 +354,14 @@ class TestDocumentSearchIntegration:
 
     def test_search_workflow_filename_then_tags(self):
         """파일명 검색 후 태그 검색 워크플로우 테스트"""
+        # Dependency override 설정
+        app.dependency_overrides[get_current_session_data] = override_get_current_session_data
+        app.dependency_overrides[get_current_user_id] = override_get_current_user_id
+
         client = TestClient(app)
 
         # 1. 파일명으로 검색
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_filename',
                    new_callable=AsyncMock) as mock_filename_search:
 
             mock_filename_search.return_value = []
@@ -320,8 +374,7 @@ class TestDocumentSearchIntegration:
         assert response1.status_code == 200
 
         # 2. 태그로 검색
-        with patch('src.domains.documents.controller.get_current_user_id', return_value=123), \
-             patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
+        with patch('src.domains.documents.service.DocumentService.search_documents_by_tags',
                    new_callable=AsyncMock) as mock_tags_search:
 
             mock_tags_search.return_value = []
@@ -330,5 +383,8 @@ class TestDocumentSearchIntegration:
                 "/api/v1/documents/search/tags",
                 params={"tags": "python"}
             )
+
+        # Dependency override 정리
+        app.dependency_overrides.clear()
 
         assert response2.status_code == 200

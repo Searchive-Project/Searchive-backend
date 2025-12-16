@@ -288,24 +288,29 @@ class AIChatService:
             logger.info(f"사용자 메시지 저장: message_id={user_msg.message_id}")
 
             # 3. RAG 컨텍스트 생성
+            logger.info(f"RAG 컨텍스트 생성 중... conversation_id={conversation_id}")
             context = await self._build_rag_context(
                 user_id=user_id,
                 conversation_id=conversation_id,
                 user_query=user_message
             )
+            logger.info(f"RAG 컨텍스트 생성 완료 - 길이: {len(context)}자")
 
             # 4. 대화 히스토리 조회 (최근 10개 메시지)
             history = await self.message_repo.find_recent_messages(
                 conversation_id=conversation_id,
                 limit=10
             )
+            logger.info(f"대화 히스토리 조회 완료 - {len(history)}개 메시지")
 
             # 5. Ollama에 질문 전송
+            logger.info(f"Ollama에 질문 전송 중... query={user_message[:50]}...")
             ai_response = await ollama_chat.chat(
                 user_query=user_message,
                 context=context,
                 history=history
             )
+            logger.info(f"Ollama 응답 수신 완료 - 길이: {len(ai_response) if ai_response else 0}자")
 
             if not ai_response:
                 raise HTTPException(
@@ -359,25 +364,30 @@ class AIChatService:
         Returns:
             컨텍스트 문자열
         """
+        logger.info(f"[RAG] 컨텍스트 생성 시작 - conversation_id={conversation_id}, user_id={user_id}, query={user_query}")
+
         # 1. 채팅방에 연결된 문서 ID 조회
         document_ids = await self.conv_doc_repo.find_document_ids_by_conversation_id(
             conversation_id=conversation_id
         )
+        logger.info(f"[RAG] 연결된 문서 ID: {document_ids}")
 
         if not document_ids:
-            logger.warning(f"채팅방 {conversation_id}에 연결된 문서가 없습니다.")
+            logger.warning(f"[RAG] 채팅방 {conversation_id}에 연결된 문서가 없습니다.")
             return "관련 문서를 찾을 수 없습니다."
 
         # 2. Elasticsearch로 관련 문서 내용 검색
+        logger.info(f"[RAG] Elasticsearch 검색 시작 - user_id={user_id}, document_ids={document_ids}, query={user_query}")
         search_results = await elasticsearch_client.search_documents_by_content(
             user_id=user_id,
             query=user_query,
             document_ids=document_ids,
             size=max_results
         )
+        logger.info(f"[RAG] Elasticsearch 검색 결과: {len(search_results)}개")
 
         if not search_results:
-            logger.info(f"검색 결과 없음: query={user_query}")
+            logger.warning(f"[RAG] 검색 결과 없음: query={user_query}, document_ids={document_ids}")
             return "질문과 관련된 문서 내용을 찾을 수 없습니다."
 
         # 3. 컨텍스트 구성 (상위 결과만 사용)
@@ -385,10 +395,12 @@ class AIChatService:
         for i, result in enumerate(search_results[:max_results], 1):
             filename = result.get("filename", "Unknown")
             content_snippet = result.get("content_snippet", "")
+            logger.info(f"[RAG] 문서 {i}: filename={filename}, snippet_length={len(content_snippet)}")
             context_parts.append(f"[문서 {i}: {filename}]\n{content_snippet}")
 
         context = "\n\n".join(context_parts)
-        logger.info(f"RAG 컨텍스트 생성 완료: {len(search_results)}개 문서, {len(context)}자")
+        logger.info(f"[RAG] 컨텍스트 생성 완료: {len(search_results)}개 문서, {len(context)}자")
+        logger.debug(f"[RAG] 생성된 컨텍스트:\n{context[:500]}...")
 
         return context
 
