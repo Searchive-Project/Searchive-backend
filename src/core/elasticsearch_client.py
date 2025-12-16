@@ -791,6 +791,90 @@ class ElasticsearchClient:
             logger.error(f"태그 검색 실패: {e}", exc_info=True)
             return []
 
+    async def search_documents_by_content(
+        self,
+        user_id: int,
+        query: str,
+        document_ids: List[int],
+        size: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        특정 문서들 내에서 내용 검색 (RAG용)
+
+        Args:
+            user_id: 사용자 ID
+            query: 검색 쿼리
+            document_ids: 검색 대상 문서 ID 리스트
+            size: 반환할 최대 결과 수
+
+        Returns:
+            검색된 문서 내용 리스트 [{"document_id", "filename", "content_snippet", "score"}, ...]
+        """
+        if not self.client:
+            await self.connect()
+
+        try:
+            # Nori 분석기를 사용한 한국어 텍스트 검색
+            search_query = {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "match": {
+                                    "content": {
+                                        "query": query,
+                                        "operator": "or",
+                                        "fuzziness": "AUTO"
+                                    }
+                                }
+                            }
+                        ],
+                        "filter": [
+                            {"term": {"user_id": user_id}},
+                            {"terms": {"document_id": document_ids}}
+                        ]
+                    }
+                },
+                "highlight": {
+                    "fields": {
+                        "content": {
+                            "fragment_size": 300,  # 300자 스니펫
+                            "number_of_fragments": 1
+                        }
+                    }
+                }
+            }
+
+            result = await self.client.search(
+                index=self.index_name,
+                body=search_query,
+                size=size
+            )
+
+            # 결과 파싱
+            documents = []
+            for hit in result["hits"]["hits"]:
+                # 하이라이트된 스니펫 추출 (없으면 앞부분 300자)
+                content_snippet = ""
+                if "highlight" in hit and "content" in hit["highlight"]:
+                    content_snippet = hit["highlight"]["content"][0]
+                else:
+                    content_snippet = hit["_source"]["content"][:300]
+
+                documents.append({
+                    "document_id": hit["_source"]["document_id"],
+                    "filename": hit["_source"]["filename"],
+                    "content_snippet": content_snippet,
+                    "score": hit["_score"]
+                })
+
+            logger.info(f"문서 내용 검색 완료: user_id={user_id}, query={query}, {len(documents)}개 발견")
+            return documents
+
+        except Exception as e:
+            logger.error(f"문서 내용 검색 실패: {e}", exc_info=True)
+            return []
+
 
 # 전역 Elasticsearch 클라이언트 인스턴스
 elasticsearch_client = ElasticsearchClient()

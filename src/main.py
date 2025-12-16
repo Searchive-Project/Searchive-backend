@@ -68,10 +68,12 @@ async def health_check():
 # 도메인 라우터 포함
 from src.domains.auth.controller import router as auth_router
 from src.domains.documents.controller import router as documents_router
+from src.domains.aichat.controller import router as aichat_router
 from src.core.redis import close_redis
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(documents_router, prefix="/api/v1/documents", tags=["Documents"])
+app.include_router(aichat_router, prefix="/api/v1/aichat", tags=["AI Chat"])
 
 
 if __name__ == "__main__":
