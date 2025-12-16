@@ -18,6 +18,7 @@ from src.db.session import Base # SQLAlchemy Base 모델 가져오기
 from src.domains.users.models import User
 from src.domains.documents.models import Document
 from src.domains.tags.models import Tag, DocumentTag
+from src.domains.aichat.models import Conversation, Message, ConversationDocument
 # ----------------------------------------------------
 
 # This is the Alembic Config object, which provides
