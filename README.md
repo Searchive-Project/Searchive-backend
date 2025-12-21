@@ -89,12 +89,19 @@ Searchive-backend/
         │   ├── repository.py   # Document 데이터 접근 계층
         │   ├── service.py      # Document 비즈니스 로직
         │   └── controller.py   # Document API 엔드포인트
-        └── tags/           # 태그 시스템 도메인 (상세: src/domains/tags/README.md)
-            ├── README.md       # ✨ Tags 도메인 상세 가이드 (Get-or-Create, N+1 방지)
-            ├── models.py       # Tag, DocumentTag 엔티티 모델
-            ├── schema.py       # Tag Pydantic 스키마
-            ├── repository.py   # Tag 데이터 접근 계층
-            └── service.py      # Tag 비즈니스 로직
+        ├── tags/           # 태그 시스템 도메인 (상세: src/domains/tags/README.md)
+        │   ├── README.md       # ✨ Tags 도메인 상세 가이드 (Get-or-Create, N+1 방지)
+        │   ├── models.py       # Tag, DocumentTag 엔티티 모델
+        │   ├── schema.py       # Tag Pydantic 스키마
+        │   ├── repository.py   # Tag 데이터 접근 계층
+        │   └── service.py      # Tag 비즈니스 로직
+        └── aichat/         # AI 채팅 도메인
+            ├── __init__.py
+            ├── models.py       # Conversation, Message, ConversationDocument 엔티티 모델
+            ├── schema.py       # AIChat Pydantic 스키마
+            ├── repository.py   # AIChat 데이터 접근 계층
+            ├── service.py      # AIChat 비즈니스 로직 (RAG 파이프라인)
+            └── controller.py   # AIChat API 엔드포인트
 ```
 
 ---
@@ -111,7 +118,7 @@ Searchive-backend/
     -   LangChain, LangGraph (RAG 파이프라인)
     -   KeyBERT (키워드 추출)
     -   Sentence Transformers (임베딩)
-    -   OpenAI API (LLM)
+    -   Ollama (로컬 LLM)
 -   **Async Runtime**: Uvicorn
 
 ---
@@ -148,9 +155,9 @@ cp .env_example .env
 - `REDIS_HOST`, `REDIS_PORT`: Redis 설정
 - `ELASTICSEARCH_HOST`, `ELASTICSEARCH_PORT`: Elasticsearch 설정
 - `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`: MinIO 설정
-- `OPENAI_API_KEY`: OpenAI API 키 (LLM 사용)
 - `KEYWORD_EXTRACTION_COUNT`: 자동 태그 추출 개수 (기본값: 3)
 - `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET`: 카카오 OAuth 설정
+- `OLLAMA_HOST`: Ollama 서버 주소 (AI 채팅 기능 사용)
 
 ### 4. DB 인프라 실행
 
@@ -459,6 +466,246 @@ print(response.json())
 ```
 
 **상세 구현 가이드**: [`src/domains/documents/README.md`](./src/domains/documents/README.md)
+
+---
+
+## 💬 AIChat API (빠른 참조)
+
+AIChat 도메인은 RAG(Retrieval-Augmented Generation) 방식의 AI 채팅 기능을 제공합니다. 사용자는 문서를 선택하여 채팅방을 생성하고, 해당 문서의 내용을 기반으로 AI와 대화할 수 있습니다.
+
+### 핵심 기술
+
+- **RAG 파이프라인**: Elasticsearch로 관련 문서 내용을 검색하여 AI 응답의 컨텍스트로 활용
+- **로컬 LLM**: Ollama를 통해 로컬 언어 모델(qwen2.5:7b) 사용
+- **대화 히스토리**: 최근 10개 메시지를 유지하여 맥락 있는 대화 지원
+- **문서 연결**: 채팅방당 여러 문서를 연결하여 통합 검색 가능
+
+### API 엔드포인트
+
+#### 1. 채팅방 생성 (POST /api/v1/aichat/conversations)
+문서를 선택하여 새로운 채팅방을 생성합니다.
+
+**요청:**
+```json
+{
+  "title": "프로젝트 기획서 관련 질문",
+  "document_ids": [1, 2, 3]
+}
+```
+
+**응답 (201 Created):**
+```json
+{
+  "conversation_id": 1,
+  "title": "프로젝트 기획서 관련 질문",
+  "created_at": "2025-12-21T10:30:00Z"
+}
+```
+
+#### 2. 채팅방 목록 조회 (GET /api/v1/aichat/conversations?page=1&page_size=20)
+사용자의 모든 채팅방 목록을 페이징하여 조회합니다.
+
+**응답 (200 OK):**
+```json
+{
+  "items": [
+    {
+      "conversation_id": 1,
+      "title": "프로젝트 기획서 관련 질문",
+      "created_at": "2025-12-21T10:30:00Z",
+      "updated_at": "2025-12-21T10:35:00Z"
+    }
+  ],
+  "total": 10,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 1
+}
+```
+
+#### 3. 채팅방 상세 조회 (GET /api/v1/aichat/conversations/{conversation_id})
+특정 채팅방의 상세 정보와 메시지 히스토리를 조회합니다.
+
+**응답 (200 OK):**
+```json
+{
+  "conversation_id": 1,
+  "user_id": 1,
+  "title": "프로젝트 기획서 관련 질문",
+  "created_at": "2025-12-21T10:30:00Z",
+  "updated_at": "2025-12-21T10:35:00Z",
+  "messages": [
+    {
+      "message_id": 1,
+      "role": "user",
+      "content": "프로젝트 일정은 어떻게 되나요?",
+      "created_at": "2025-12-21T10:31:00Z"
+    },
+    {
+      "message_id": 2,
+      "role": "assistant",
+      "content": "기획서에 따르면, 프로젝트는 2025년 1월부터 시작하여...",
+      "created_at": "2025-12-21T10:31:05Z"
+    }
+  ]
+}
+```
+
+#### 4. 메시지 전송 및 AI 응답 받기 (POST /api/v1/aichat/conversations/{conversation_id}/messages)
+사용자 질문을 전송하고 AI 응답을 받습니다. RAG 방식으로 연결된 문서에서 관련 내용을 검색하여 응답합니다.
+
+**요청:**
+```json
+{
+  "content": "프로젝트의 주요 목표는 무엇인가요?"
+}
+```
+
+**응답 (201 Created):**
+```json
+{
+  "user_message": {
+    "message_id": 3,
+    "role": "user",
+    "content": "프로젝트의 주요 목표는 무엇인가요?",
+    "created_at": "2025-12-21T10:32:00Z"
+  },
+  "assistant_message": {
+    "message_id": 4,
+    "role": "assistant",
+    "content": "기획서에 명시된 주요 목표는 다음과 같습니다:\n1. 사용자 경험 개선\n2. 시스템 성능 향상\n3. ...",
+    "created_at": "2025-12-21T10:32:05Z"
+  }
+}
+```
+
+**RAG 워크플로우:**
+1. 채팅방에 연결된 문서 ID 조회
+2. Elasticsearch로 사용자 질문과 관련된 문서 내용 검색
+3. 검색 결과를 컨텍스트로 구성 (최대 5개 문서)
+4. 최근 대화 히스토리 10개 조회
+5. Ollama에 질문 + 컨텍스트 + 히스토리 전송
+6. AI 응답 생성 및 저장
+
+#### 5. 메시지 목록 조회 (GET /api/v1/aichat/conversations/{conversation_id}/messages)
+특정 채팅방의 모든 메시지를 조회합니다.
+
+**응답 (200 OK):**
+```json
+[
+  {
+    "message_id": 1,
+    "role": "user",
+    "content": "프로젝트 일정은?",
+    "created_at": "2025-12-21T10:31:00Z"
+  },
+  {
+    "message_id": 2,
+    "role": "assistant",
+    "content": "일정은...",
+    "created_at": "2025-12-21T10:31:05Z"
+  }
+]
+```
+
+#### 6. 연결된 문서 목록 조회 (GET /api/v1/aichat/conversations/{conversation_id}/documents)
+채팅방에 연결된 문서 목록을 조회합니다.
+
+**응답 (200 OK):**
+```json
+{
+  "conversation_id": 1,
+  "documents": [
+    {
+      "document_id": 1,
+      "original_filename": "project_plan.pdf",
+      "file_type": "application/pdf",
+      "uploaded_at": "2025-12-20T15:00:00Z"
+    }
+  ]
+}
+```
+
+#### 7. 채팅방 제목 수정 (PATCH /api/v1/aichat/conversations/{conversation_id})
+채팅방 제목을 수정합니다.
+
+**요청:**
+```json
+{
+  "title": "프로젝트 기획 문의"
+}
+```
+
+**응답 (200 OK):**
+```json
+{
+  "conversation_id": 1,
+  "title": "프로젝트 기획 문의",
+  "created_at": "2025-12-21T10:30:00Z",
+  "updated_at": "2025-12-21T11:00:00Z"
+}
+```
+
+#### 8. 채팅방 삭제 (DELETE /api/v1/aichat/conversations/{conversation_id})
+채팅방과 관련된 모든 메시지 및 문서 연결을 삭제합니다.
+
+**응답 (200 OK):**
+```json
+{
+  "message": "채팅방이 성공적으로 삭제되었습니다.",
+  "conversation_id": 1
+}
+```
+
+### 사용 예시
+
+#### cURL 예시
+
+```bash
+# 채팅방 생성
+curl -X POST "http://localhost:8000/api/v1/aichat/conversations" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session_id=YOUR_SESSION_ID" \
+  -d '{"title": "프로젝트 기획서 관련 질문", "document_ids": [1, 2, 3]}'
+
+# 메시지 전송
+curl -X POST "http://localhost:8000/api/v1/aichat/conversations/1/messages" \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session_id=YOUR_SESSION_ID" \
+  -d '{"content": "프로젝트 일정은?"}'
+
+# 채팅방 목록 조회
+curl -X GET "http://localhost:8000/api/v1/aichat/conversations?page=1&page_size=20" \
+  -H "Cookie: session_id=YOUR_SESSION_ID"
+```
+
+#### Python 예시
+
+```python
+import requests
+
+cookies = {"session_id": "YOUR_SESSION_ID"}
+
+# 채팅방 생성
+response = requests.post(
+    "http://localhost:8000/api/v1/aichat/conversations",
+    json={
+        "title": "프로젝트 기획서 관련 질문",
+        "document_ids": [1, 2, 3]
+    },
+    cookies=cookies
+)
+conversation = response.json()
+conversation_id = conversation["conversation_id"]
+
+# 메시지 전송
+response = requests.post(
+    f"http://localhost:8000/api/v1/aichat/conversations/{conversation_id}/messages",
+    json={"content": "프로젝트 일정은?"},
+    cookies=cookies
+)
+print(response.json())
+```
 
 ---
 
