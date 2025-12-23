@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """User 도메인 Service"""
-from typing import Optional
+from typing import Optional, List, Dict
 from src.domains.users.repository import UserRepository
-from src.domains.users.models import User
+from src.domains.users.models import User, UserActivity
 
 
 class UserService:
@@ -85,3 +85,45 @@ class UserService:
             삭제 성공 여부
         """
         return await self.user_repository.delete(user_id)
+
+    async def log_activity(self, user_id: int, activity_type: str, tags: List[str], doc_id: Optional[int] = None) -> UserActivity:
+        """
+        사용자 활동 로그 기록
+
+        Args:
+            user_id: 사용자 ID
+            activity_type: 활동 타입 ('VIEW' 또는 'UPLOAD')
+            tags: 태그 리스트
+            doc_id: 문서 ID (선택)
+
+        Returns:
+            생성된 UserActivity 객체
+        """
+        return await self.user_repository.log_activity(user_id, activity_type, tags, doc_id)
+
+    async def get_topic_preference(self, user_id: int, days: int = 30, limit: int = 5) -> Dict[str, int]:
+        """
+        최근 N일 동안 사용자의 관심 주제(태그) 집계
+
+        Args:
+            user_id: 사용자 ID
+            days: 집계할 기간 (기본값: 30일)
+            limit: 반환할 최대 태그 개수 (기본값: 5)
+
+        Returns:
+            {"태그명": 출현횟수} 형식의 딕셔너리
+        """
+        return await self.user_repository.get_topic_preference(user_id, days, limit)
+
+    async def get_activity_heatmap(self, user_id: int, days: int = 365) -> List[Dict[str, any]]:
+        """
+        최근 N일 동안 날짜별 활동 횟수 집계
+
+        Args:
+            user_id: 사용자 ID
+            days: 집계할 기간 (기본값: 365일)
+
+        Returns:
+            [{"date": "2024-01-01", "count": 5}, ...] 형식의 리스트
+        """
+        return await self.user_repository.get_activity_heatmap(user_id, days)

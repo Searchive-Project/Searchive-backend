@@ -16,6 +16,8 @@ from src.domains.documents.schema import (
     DocumentSearchResponse
 )
 from src.core.security import get_current_user_id
+from src.domains.users.repository import UserRepository
+from src.domains.users.service import UserService
 
 
 router = APIRouter()
@@ -27,6 +29,12 @@ def get_document_service(db: AsyncSession = Depends(get_db)) -> DocumentService:
     return DocumentService(document_repository, db)
 
 
+def get_user_service(db: AsyncSession = Depends(get_db)) -> UserService:
+    """UserService 의존성 주입"""
+    user_repository = UserRepository(db)
+    return UserService(user_repository)
+
+
 @router.post(
     "/upload",
     response_model=DocumentUploadResponse,
@@ -36,7 +44,8 @@ def get_document_service(db: AsyncSession = Depends(get_db)) -> DocumentService:
 async def upload_document(
     file: UploadFile = File(...),
     user_id: int = Depends(get_current_user_id),
-    document_service: DocumentService = Depends(get_document_service)
+    document_service: DocumentService = Depends(get_document_service),
+    user_service: UserService = Depends(get_user_service)
 ):
     """
     사용자가 문서를 업로드합니다.
@@ -45,6 +54,7 @@ async def upload_document(
         file: 업로드할 파일 (multipart/form-data)
         user_id: get_current_user_id 의존성에서 주입된 사용자 ID
         document_service: DocumentService 의존성 주입
+        user_service: UserService 의존성 주입
 
     Returns:
         DocumentUploadResponse: 업로드된 문서의 메타데이터
@@ -63,6 +73,16 @@ async def upload_document(
     )
 
     logger.info(f"문서 업로드 성공: document_id={document.document_id}, tags={len(tags)}개")
+
+    # 활동 로그 기록 (UPLOAD)
+    tag_names = [tag.name for tag in tags]
+    await user_service.log_activity(
+        user_id=user_id,
+        activity_type="UPLOAD",
+        tags=tag_names,
+        doc_id=document.document_id
+    )
+    logger.info(f"활동 로그 기록 완료: user_id={user_id}, type=UPLOAD, tags={len(tag_names)}개")
 
     from src.domains.documents.schema import TagSchema
 
@@ -268,7 +288,8 @@ async def get_documents_paginated_ascending(
 async def get_document(
     document_id: int,
     user_id: int = Depends(get_current_user_id),
-    document_service: DocumentService = Depends(get_document_service)
+    document_service: DocumentService = Depends(get_document_service),
+    user_service: UserService = Depends(get_user_service)
 ):
     """
     특정 문서의 상세 정보를 조회합니다. (권한 검증 포함)
@@ -277,6 +298,7 @@ async def get_document(
         document_id: 조회할 문서 ID
         user_id: get_current_user_id 의존성에서 주입된 사용자 ID
         document_service: DocumentService 의존성 주입
+        user_service: UserService 의존성 주입
 
     Returns:
         DocumentDetailResponse: 문서 상세 정보
@@ -284,6 +306,9 @@ async def get_document(
     Raises:
         HTTPException: 문서를 찾을 수 없는 경우
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     document = await document_service.get_document_by_id(
         document_id=document_id,
         user_id=user_id
@@ -294,6 +319,16 @@ async def get_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="문서를 찾을 수 없습니다."
         )
+
+    # 활동 로그 기록 (VIEW)
+    tag_names = [dt.tag.name for dt in document.document_tags]
+    await user_service.log_activity(
+        user_id=user_id,
+        activity_type="VIEW",
+        tags=tag_names,
+        doc_id=document.document_id
+    )
+    logger.info(f"활동 로그 기록 완료: user_id={user_id}, type=VIEW, doc_id={document.document_id}")
 
     from src.domains.documents.schema import TagSchema
 
