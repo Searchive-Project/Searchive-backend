@@ -234,478 +234,105 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ---
 
-## 📄 Documents API (빠른 참조)
+## 📄 Documents API
 
-Documents 도메인의 주요 API 엔드포인트입니다. 상세한 워크플로우와 구현은 [`src/domains/documents/README.md`](./src/domains/documents/README.md)를 참고하세요.
+Documents 도메인은 문서 업로드, 관리, 검색 기능을 제공합니다. **AI 기반 자동 태깅**과 Elasticsearch를 통한 강력한 검색 기능이 핵심입니다.
 
-### API 엔드포인트
+### 주요 기능
 
-#### 1. 문서 업로드 (POST /api/v1/documents/upload)
-사용자가 문서를 MinIO에 업로드하고 메타데이터를 PostgreSQL에 저장합니다. **AI 기반 자동 태그 생성** 기능이 포함되어 있습니다.
+- **문서 업로드 및 관리**: MinIO 객체 스토리지에 파일 저장, PostgreSQL에 메타데이터 관리
+- **AI 자동 태깅**: KeyBERT 및 Elasticsearch TF-IDF를 활용한 하이브리드 키워드 추출
+- **문서 검색**: 파일명 검색 (Elasticsearch), 태그 검색 (PostgreSQL)
+- **권한 관리**: 사용자별 문서 격리 및 접근 제어
 
-**요청:**
-- Method: `POST`
-- Content-Type: `multipart/form-data`
-- Body: `file` (파일)
-- Headers: `Cookie: session_id` (인증 필요)
+### API 엔드포인트 (빠른 참조)
 
-**허용된 파일 형식:**
-- PDF, Word, Excel, PowerPoint, 텍스트, 한글(HWP)
+| 메서드 | 엔드포인트 | 설명 |
+|--------|-----------|------|
+| POST | `/api/v1/documents/upload` | 문서 업로드 (AI 자동 태깅 포함) |
+| GET | `/api/v1/documents` | 문서 목록 조회 |
+| GET | `/api/v1/documents/{id}` | 문서 상세 조회 |
+| DELETE | `/api/v1/documents/{id}` | 문서 삭제 |
+| GET | `/api/v1/documents/search/filename` | 파일명 검색 |
+| GET | `/api/v1/documents/search/tags` | 태그 검색 |
 
-**응답 (201 Created):**
-```json
-{
-  "document_id": 101,
-  "user_id": 1,
-  "original_filename": "my_report.pdf",
-  "storage_path": "1/a1b2c3d4-...-uuid.pdf",
-  "file_type": "application/pdf",
-  "file_size_kb": 1234,
-  "uploaded_at": "2025-10-08T15:30:00Z",
-  "updated_at": "2025-10-08T15:30:00Z",
-  "tags": [
-    {"tag_id": 1, "name": "machine learning"},
-    {"tag_id": 2, "name": "deep learning"},
-    {"tag_id": 3, "name": "neural network"}
-  ],
-  "extraction_method": "keybert"
-}
-```
+### 상세 문서
 
-**AI 자동 태깅:**
-- 문서 업로드 시 AI가 자동으로 키워드를 추출하고 태그를 생성합니다
-- **키워드 추출 (하이브리드 전략)**:
-  - Cold Start (문서 < 5개): KeyBERT 기반 시맨틱 키워드 추출
-  - Normal (문서 ≥ 5개): Elasticsearch TF-IDF 기반 유의미 용어 추출
-  - 추출 로직: 충분히 많이 추출(10개) → 불용어 필터링 → 상위 N개 선택 (기본 3개)
-  - 개수 보장: `.env`의 `KEYWORD_EXTRACTION_COUNT`로 설정 (항상 설정값만큼 태그 생성)
-- **태그 중복 제거 (Elasticsearch 배치 벡터 검색)**:
-  - 각 키워드를 384차원 임베딩 벡터로 변환 (paraphrase-multilingual-MiniLM-L12-v2)
-  - Elasticsearch KNN 인덱스에서 유사 태그 배치 검색 (코사인 유사도 ≥ 0.8)
-  - 성능: N개 태그 → 1번의 Multi-Search 쿼리로 처리 (~10ms)
-  - 유사 태그 발견 시 기존 태그 재사용, 없으면 새로 생성
-  - 예시: "ML" 입력 → "Machine Learning" 기존 태그와 유사도 0.85 → 재사용
+Documents 도메인의 상세한 API 명세, 워크플로우, 구현 가이드는 다음 문서를 참고하세요:
 
-#### 2. 문서 목록 조회 (GET /api/v1/documents)
-현재 로그인된 사용자의 모든 문서 목록을 조회합니다. 각 문서에 연결된 태그 정보도 함께 반환됩니다.
+**[📖 Documents 도메인 상세 가이드](./src/domains/documents/README.md)**
 
-**응답 (200 OK):**
-```json
-[
-  {
-    "document_id": 101,
-    "original_filename": "report.pdf",
-    "file_type": "application/pdf",
-    "file_size_kb": 1234,
-    "uploaded_at": "2025-10-08T15:30:00Z",
-    "updated_at": "2025-10-08T15:30:00Z",
-    "tags": [
-      {"tag_id": 1, "name": "machine learning"},
-      {"tag_id": 2, "name": "deep learning"}
-    ]
-  }
-]
-```
-
-#### 3. 문서 상세 조회 (GET /api/v1/documents/{document_id})
-특정 문서의 상세 정보를 조회합니다. (권한 검증 포함)
-
-**응답 (200 OK):**
-```json
-{
-  "document_id": 101,
-  "user_id": 1,
-  "original_filename": "my_report.pdf",
-  "storage_path": "1/a1b2c3d4-...-uuid.pdf",
-  "file_type": "application/pdf",
-  "file_size_kb": 1234,
-  "uploaded_at": "2025-10-08T15:30:00Z",
-  "updated_at": "2025-10-08T15:30:00Z",
-  "tags": [
-    {"tag_id": 1, "name": "machine learning"},
-    {"tag_id": 2, "name": "deep learning"}
-  ]
-}
-```
-
-#### 4. 문서 삭제 (DELETE /api/v1/documents/{document_id})
-문서를 MinIO와 PostgreSQL에서 완전히 삭제합니다.
-
-**응답 (200 OK):**
-```json
-{
-  "message": "문서가 성공적으로 삭제되었습니다.",
-  "document_id": 101
-}
-```
-
-#### 5. 파일명으로 문서 검색 (GET /api/v1/documents/search/filename?query={filename})
-Elasticsearch를 사용하여 파일명으로 문서를 검색합니다.
-
-**요청 예시:**
-```http
-GET /api/v1/documents/search/filename?query=report
-```
-
-**응답 (200 OK):**
-```json
-{
-  "documents": [
-    {
-      "document_id": 101,
-      "original_filename": "annual_report_2024.pdf",
-      "file_type": "application/pdf",
-      "file_size_kb": 2048,
-      "summary": "2024년도 연간 보고서입니다.",
-      "uploaded_at": "2024-01-15T10:30:00",
-      "updated_at": "2024-01-15T10:30:00",
-      "tags": [
-        {"tag_id": 5, "name": "보고서"},
-        {"tag_id": 12, "name": "재무"}
-      ]
-    }
-  ],
-  "query": "report",
-  "total": 1
-}
-```
-
-#### 6. 태그로 문서 검색 (GET /api/v1/documents/search/tags?tags={tag1,tag2})
-PostgreSQL을 사용하여 태그로 문서를 검색합니다. 여러 태그 검색 시 OR 조건으로 동작합니다.
-
-**요청 예시:**
-```http
-GET /api/v1/documents/search/tags?tags=python,fastapi
-```
-
-**응답 (200 OK):**
-```json
-{
-  "documents": [
-    {
-      "document_id": 10,
-      "original_filename": "fastapi_tutorial.pdf",
-      "file_type": "application/pdf",
-      "file_size_kb": 1024,
-      "summary": "FastAPI 프레임워크 튜토리얼 문서입니다.",
-      "uploaded_at": "2024-03-10T14:20:00",
-      "updated_at": "2024-03-10T14:20:00",
-      "tags": [
-        {"tag_id": 15, "name": "python"},
-        {"tag_id": 23, "name": "fastapi"}
-      ]
-    }
-  ],
-  "query": "python,fastapi",
-  "total": 1
-}
-```
+- 문서 업로드 워크플로우 (9단계)
+- AI 자동 태깅 상세 로직
+- Elasticsearch 검색 구현
+- 성능 최적화 및 보안
 
 ---
 
-## 🔍 문서 검색 API 상세
+## 💬 AIChat API
 
-### 기술 스펙
+AIChat 도메인은 RAG(Retrieval-Augmented Generation) 방식의 AI 채팅 기능을 제공합니다. 문서 기반 Q&A와 대화형 AI 어시스턴트 기능을 결합했습니다.
 
-#### 파일명 검색
-- **엔드포인트**: `GET /api/v1/documents/search/filename`
-- **검색 엔진**: Elasticsearch
-- **검색 방식**: 하이브리드 (Wildcard + Fuzzy)
-  - Wildcard: 부분 일치 검색 (높은 가중치)
-  - Fuzzy: 오타 보정 검색 (1-2글자 차이 허용)
-- **Request**: Query Parameter `query` (검색할 파일명)
-- **Response**: `DocumentSearchResponse`
+### 주요 기능
 
-#### 태그 검색
-- **엔드포인트**: `GET /api/v1/documents/search/tags`
-- **검색 엔진**: PostgreSQL
-- **검색 방식**: JOIN + IN 조건 (여러 태그는 OR 조건)
-- **Request**: Query Parameter `tags` (검색할 태그, 쉼표로 구분)
-- **Response**: `DocumentSearchResponse`
+- **RAG 파이프라인**: Elasticsearch로 문서 검색 → 컨텍스트 구성 → AI 응답 생성
+- **로컬 LLM**: Ollama(qwen2.5:7b)를 통한 프라이빗 AI 처리
+- **대화 기억**: 최근 10개 메시지를 유지하여 맥락 있는 대화 지원
+- **다중 문서 지원**: 채팅방당 여러 문서를 연결하여 통합 분석 가능
 
-### 사용 예시
+### API 엔드포인트 (빠른 참조)
 
-#### cURL 예시
+| 메서드 | 엔드포인트 | 설명 |
+|--------|-----------|------|
+| POST | `/api/v1/aichat/conversations` | 채팅방 생성 (문서 선택) |
+| GET | `/api/v1/aichat/conversations` | 채팅방 목록 조회 (페이징) |
+| GET | `/api/v1/aichat/conversations/{id}` | 채팅방 상세 조회 (메시지 포함) |
+| POST | `/api/v1/aichat/conversations/{id}/messages` | 메시지 전송 및 AI 응답 받기 |
+| GET | `/api/v1/aichat/conversations/{id}/messages` | 메시지 목록 조회 |
+| GET | `/api/v1/aichat/conversations/{id}/documents` | 연결된 문서 목록 조회 |
+| PATCH | `/api/v1/aichat/conversations/{id}` | 채팅방 제목 수정 |
+| DELETE | `/api/v1/aichat/conversations/{id}` | 채팅방 삭제 |
 
-```bash
-# 파일명 검색
-curl -X GET "http://localhost:8000/api/v1/documents/search/filename?query=report" \
-  -H "Cookie: session_id=YOUR_SESSION_ID"
+### 상세 문서
 
-# 태그 검색 (단일)
-curl -X GET "http://localhost:8000/api/v1/documents/search/tags?tags=python" \
-  -H "Cookie: session_id=YOUR_SESSION_ID"
+AIChat 도메인의 상세한 API 명세, RAG 파이프라인, 프론트엔드 연동 가이드는 다음 문서를 참고하세요:
 
-# 태그 검색 (다중)
-curl -X GET "http://localhost:8000/api/v1/documents/search/tags?tags=python,fastapi" \
-  -H "Cookie: session_id=YOUR_SESSION_ID"
-```
+**[📖 AIChat 도메인 상세 가이드](./src/domains/aichat/README.md)**
 
-#### Python 예시
-
-```python
-import requests
-
-cookies = {"session_id": "YOUR_SESSION_ID"}
-
-# 파일명 검색
-response = requests.get(
-    "http://localhost:8000/api/v1/documents/search/filename",
-    params={"query": "report"},
-    cookies=cookies
-)
-print(response.json())
-
-# 태그 검색
-response = requests.get(
-    "http://localhost:8000/api/v1/documents/search/tags",
-    params={"tags": "python,fastapi"},
-    cookies=cookies
-)
-print(response.json())
-```
-
-**상세 구현 가이드**: [`src/domains/documents/README.md`](./src/domains/documents/README.md)
+- RAG 파이프라인 상세 구현
+- Ollama LLM 설정 및 최적화
+- 프롬프트 엔지니어링
+- 스트리밍 응답 구현 (향후 개선)
 
 ---
 
-## 💬 AIChat API (빠른 참조)
+## 👤 Users API
 
-AIChat 도메인은 RAG(Retrieval-Augmented Generation) 방식의 AI 채팅 기능을 제공합니다. 사용자는 문서를 선택하여 채팅방을 생성하고, 해당 문서의 내용을 기반으로 AI와 대화할 수 있습니다.
+Users 도메인은 사용자 정보 관리 및 통계/활동 분석 기능을 제공합니다. 사용자의 관심사와 활동 패턴을 분석하여 개인화된 인사이트를 제공합니다.
 
-### 핵심 기술
+### 주요 기능
 
-- **RAG 파이프라인**: Elasticsearch로 관련 문서 내용을 검색하여 AI 응답의 컨텍스트로 활용
-- **로컬 LLM**: Ollama를 통해 로컬 언어 모델(qwen2.5:7b) 사용
-- **대화 히스토리**: 최근 10개 메시지를 유지하여 맥락 있는 대화 지원
-- **문서 연결**: 채팅방당 여러 문서를 연결하여 통합 검색 가능
+- **관심사 분석**: 최근 30일간 활동 기록을 기반으로 사용자 관심 주제 파악
+- **활동 히트맵**: GitHub 잔디 심기 스타일의 날짜별 활동 시각화 데이터
+- **사용자 관리**: 사용자 정보 조회, 수정, 삭제 (Auth 도메인과 연동)
 
-### API 엔드포인트
+### API 엔드포인트 (빠른 참조)
 
-#### 1. 채팅방 생성 (POST /api/v1/aichat/conversations)
-문서를 선택하여 새로운 채팅방을 생성합니다.
+| 메서드 | 엔드포인트 | 설명 |
+|--------|-----------|------|
+| GET | `/api/v1/users/stats/topics` | 관심사 분석 (태그별 활동 집계) |
+| GET | `/api/v1/users/stats/heatmap` | 활동 히트맵 (날짜별 활동 집계) |
 
-**요청:**
-```json
-{
-  "title": "프로젝트 기획서 관련 질문",
-  "document_ids": [1, 2, 3]
-}
-```
+### 상세 문서
 
-**응답 (201 Created):**
-```json
-{
-  "conversation_id": 1,
-  "title": "프로젝트 기획서 관련 질문",
-  "created_at": "2025-12-21T10:30:00Z"
-}
-```
+Users 도메인의 상세한 API 명세, 데이터 모델, 프론트엔드 연동 가이드는 다음 문서를 참고하세요:
 
-#### 2. 채팅방 목록 조회 (GET /api/v1/aichat/conversations?page=1&page_size=20)
-사용자의 모든 채팅방 목록을 페이징하여 조회합니다.
+**[📖 Users 도메인 상세 가이드](./src/domains/users/README.md)**
 
-**응답 (200 OK):**
-```json
-{
-  "items": [
-    {
-      "conversation_id": 1,
-      "title": "프로젝트 기획서 관련 질문",
-      "created_at": "2025-12-21T10:30:00Z",
-      "updated_at": "2025-12-21T10:35:00Z"
-    }
-  ],
-  "total": 10,
-  "page": 1,
-  "page_size": 20,
-  "total_pages": 1
-}
-```
-
-#### 3. 채팅방 상세 조회 (GET /api/v1/aichat/conversations/{conversation_id})
-특정 채팅방의 상세 정보와 메시지 히스토리를 조회합니다.
-
-**응답 (200 OK):**
-```json
-{
-  "conversation_id": 1,
-  "user_id": 1,
-  "title": "프로젝트 기획서 관련 질문",
-  "created_at": "2025-12-21T10:30:00Z",
-  "updated_at": "2025-12-21T10:35:00Z",
-  "messages": [
-    {
-      "message_id": 1,
-      "role": "user",
-      "content": "프로젝트 일정은 어떻게 되나요?",
-      "created_at": "2025-12-21T10:31:00Z"
-    },
-    {
-      "message_id": 2,
-      "role": "assistant",
-      "content": "기획서에 따르면, 프로젝트는 2025년 1월부터 시작하여...",
-      "created_at": "2025-12-21T10:31:05Z"
-    }
-  ]
-}
-```
-
-#### 4. 메시지 전송 및 AI 응답 받기 (POST /api/v1/aichat/conversations/{conversation_id}/messages)
-사용자 질문을 전송하고 AI 응답을 받습니다. RAG 방식으로 연결된 문서에서 관련 내용을 검색하여 응답합니다.
-
-**요청:**
-```json
-{
-  "content": "프로젝트의 주요 목표는 무엇인가요?"
-}
-```
-
-**응답 (201 Created):**
-```json
-{
-  "user_message": {
-    "message_id": 3,
-    "role": "user",
-    "content": "프로젝트의 주요 목표는 무엇인가요?",
-    "created_at": "2025-12-21T10:32:00Z"
-  },
-  "assistant_message": {
-    "message_id": 4,
-    "role": "assistant",
-    "content": "기획서에 명시된 주요 목표는 다음과 같습니다:\n1. 사용자 경험 개선\n2. 시스템 성능 향상\n3. ...",
-    "created_at": "2025-12-21T10:32:05Z"
-  }
-}
-```
-
-**RAG 워크플로우:**
-1. 채팅방에 연결된 문서 ID 조회
-2. Elasticsearch로 사용자 질문과 관련된 문서 내용 검색
-3. 검색 결과를 컨텍스트로 구성 (최대 5개 문서)
-4. 최근 대화 히스토리 10개 조회
-5. Ollama에 질문 + 컨텍스트 + 히스토리 전송
-6. AI 응답 생성 및 저장
-
-#### 5. 메시지 목록 조회 (GET /api/v1/aichat/conversations/{conversation_id}/messages)
-특정 채팅방의 모든 메시지를 조회합니다.
-
-**응답 (200 OK):**
-```json
-[
-  {
-    "message_id": 1,
-    "role": "user",
-    "content": "프로젝트 일정은?",
-    "created_at": "2025-12-21T10:31:00Z"
-  },
-  {
-    "message_id": 2,
-    "role": "assistant",
-    "content": "일정은...",
-    "created_at": "2025-12-21T10:31:05Z"
-  }
-]
-```
-
-#### 6. 연결된 문서 목록 조회 (GET /api/v1/aichat/conversations/{conversation_id}/documents)
-채팅방에 연결된 문서 목록을 조회합니다.
-
-**응답 (200 OK):**
-```json
-{
-  "conversation_id": 1,
-  "documents": [
-    {
-      "document_id": 1,
-      "original_filename": "project_plan.pdf",
-      "file_type": "application/pdf",
-      "uploaded_at": "2025-12-20T15:00:00Z"
-    }
-  ]
-}
-```
-
-#### 7. 채팅방 제목 수정 (PATCH /api/v1/aichat/conversations/{conversation_id})
-채팅방 제목을 수정합니다.
-
-**요청:**
-```json
-{
-  "title": "프로젝트 기획 문의"
-}
-```
-
-**응답 (200 OK):**
-```json
-{
-  "conversation_id": 1,
-  "title": "프로젝트 기획 문의",
-  "created_at": "2025-12-21T10:30:00Z",
-  "updated_at": "2025-12-21T11:00:00Z"
-}
-```
-
-#### 8. 채팅방 삭제 (DELETE /api/v1/aichat/conversations/{conversation_id})
-채팅방과 관련된 모든 메시지 및 문서 연결을 삭제합니다.
-
-**응답 (200 OK):**
-```json
-{
-  "message": "채팅방이 성공적으로 삭제되었습니다.",
-  "conversation_id": 1
-}
-```
-
-### 사용 예시
-
-#### cURL 예시
-
-```bash
-# 채팅방 생성
-curl -X POST "http://localhost:8000/api/v1/aichat/conversations" \
-  -H "Content-Type: application/json" \
-  -H "Cookie: session_id=YOUR_SESSION_ID" \
-  -d '{"title": "프로젝트 기획서 관련 질문", "document_ids": [1, 2, 3]}'
-
-# 메시지 전송
-curl -X POST "http://localhost:8000/api/v1/aichat/conversations/1/messages" \
-  -H "Content-Type: application/json" \
-  -H "Cookie: session_id=YOUR_SESSION_ID" \
-  -d '{"content": "프로젝트 일정은?"}'
-
-# 채팅방 목록 조회
-curl -X GET "http://localhost:8000/api/v1/aichat/conversations?page=1&page_size=20" \
-  -H "Cookie: session_id=YOUR_SESSION_ID"
-```
-
-#### Python 예시
-
-```python
-import requests
-
-cookies = {"session_id": "YOUR_SESSION_ID"}
-
-# 채팅방 생성
-response = requests.post(
-    "http://localhost:8000/api/v1/aichat/conversations",
-    json={
-        "title": "프로젝트 기획서 관련 질문",
-        "document_ids": [1, 2, 3]
-    },
-    cookies=cookies
-)
-conversation = response.json()
-conversation_id = conversation["conversation_id"]
-
-# 메시지 전송
-response = requests.post(
-    f"http://localhost:8000/api/v1/aichat/conversations/{conversation_id}/messages",
-    json={"content": "프로젝트 일정은?"},
-    cookies=cookies
-)
-print(response.json())
-```
+- 사용자 통계 쿼리 최적화
+- React 차트 연동 예시
+- 활동 로깅 시스템
+- 성능 개선 및 캐싱 전략
 
 ---
 
