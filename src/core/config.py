@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # AI/LLM 설정
-    OPENAI_API_KEY: str = ""
+    # OPENAI_API_KEY: str = ""
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_PROJECT: str = "searchive"
