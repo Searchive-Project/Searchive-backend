@@ -202,7 +202,11 @@ class KeyBERTExtractor(KeywordExtractor):
         Returns:
             추출된 키워드 리스트
         """
-        self._load_model()
+        import asyncio
+        
+        # 모델 로드도 블로킹 작업이므로 스레드에서 실행하거나 미리 로드
+        if self.model is None:
+            await asyncio.to_thread(self._load_model)
 
         try:
             # 여유있게 많이 추출 (필터링 후 개수 보장을 위해)
@@ -210,13 +214,15 @@ class KeyBERTExtractor(KeywordExtractor):
             # 필터링을 고려하여 3배 정도 많이 추출 (최소 10개)
             extraction_count = max(keyword_count * 3, 10)
 
-            keywords_with_scores = self.model.extract_keywords(
+            # KeyBERT의 extract_keywords는 동기 함수이므로 to_thread로 실행
+            keywords_with_scores = await asyncio.to_thread(
+                self.model.extract_keywords,
                 text,
-                keyphrase_ngram_range=(1, 2),  # 1~2 단어 구문까지 키워드로 고려
-                stop_words='english',  # 영어 불용어 제거(is,a, the 같은 불용어를 키워드에서 제거)
-                top_n=extraction_count,  # 충분히 많이 추출
-                use_maxsum=True,  # 다양성 증가(키워드 중복 방지)
-                nr_candidates=30  # 후보 키워드 수 증가
+                keyphrase_ngram_range=(1, 2),
+                stop_words='english',
+                top_n=extraction_count,
+                use_maxsum=True,
+                nr_candidates=30
             )
 
             # (키워드, 점수) 튜플에서 키워드만 추출

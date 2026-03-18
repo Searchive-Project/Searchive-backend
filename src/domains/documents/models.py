@@ -23,6 +23,7 @@ class Document(Base):
     # 관계 설정
     owner = relationship("User", back_populates="documents")
     document_tags = relationship("DocumentTag", back_populates="document", cascade="all, delete-orphan")
+    tags = relationship("Tag", secondary="document_tags", back_populates="documents", viewonly=True)
 
     def __repr__(self):
         return f"<Document(document_id={self.document_id}, filename={self.original_filename})>"

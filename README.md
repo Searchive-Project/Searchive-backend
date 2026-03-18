@@ -140,7 +140,28 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. 환경 변수 설정
+### 3. Elasticsearch Nori 플러그인 설치 (필수)
+
+한국어 형태소 분석을 위해 Nori 플러그인 설치가 반드시 필요합니다. 설치하지 않으면 "을", "를" 같은 조사가 키워드로 추출됩니다.
+
+**Windows/Linux/Mac (직접 설치 시):**
+```bash
+# Elasticsearch 설치 폴더의 bin 디렉토리에서 실행
+bin/elasticsearch-plugin install analysis-nori
+
+# 설치 후 Elasticsearch 재시작 필수!
+# Linux: sudo systemctl restart elasticsearch
+```
+
+**Docker 사용 시:**
+```bash
+docker exec -it <container_name> bin/elasticsearch-plugin install analysis-nori
+docker restart <container_name>
+```
+
+설치 후 `python scripts/reindex_with_nori.py`를 실행하여 기존 데이터를 재색인하는 것을 권장합니다.
+
+### 4. 환경 변수 설정
 
 `.env_example` 파일을 복사하여 `.env` 파일을 생성하고, `Searchive-db` 스택의 접속 정보를 입력합니다.
 

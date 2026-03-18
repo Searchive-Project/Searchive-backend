@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # AI/LLM 설정
     OPENAI_API_KEY: str = ""
-    LLM_MODEL_NAME: str = "gemini-1.5-flash"
+    LLM_MODEL_NAME: str = "gemini-2.0-flash"
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_PROJECT: str = "searchive"

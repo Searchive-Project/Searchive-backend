@@ -6,8 +6,10 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 import redis
 
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from src.core.config import settings
 from src.db.session import Base
+from src.core.elasticsearch_client import elasticsearch_client
 
 
 # ============================================
@@ -17,7 +19,10 @@ from src.db.session import Base
 @pytest.fixture(scope="session")
 def event_loop():
     """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
@@ -50,6 +55,35 @@ def db_session(db_engine) -> Generator[Session, None, None]:
     session.close()
     transaction.rollback()
     connection.close()
+
+
+@pytest.fixture(scope="session")
+def async_db_engine():
+    """Create a test async database engine."""
+    engine = create_async_engine(
+        settings.ASYNC_DATABASE_URL,
+        poolclass=StaticPool,
+        future=True
+    )
+    yield engine
+
+@pytest.fixture(scope="function")
+async def async_db_session(async_db_engine) -> AsyncGenerator[AsyncSession, None]:
+    """Create a new async database session for a test."""
+    
+    # We need to use a separate connection to handle transactions correctly in tests
+    async with async_db_engine.connect() as connection:
+        await connection.begin()
+        AsyncSessionLocal = async_sessionmaker(
+            bind=connection,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autocommit=False,
+            autoflush=False,
+        )
+        async with AsyncSessionLocal() as session:
+            yield session
+            # Rollback is handled by the connection transaction context
 
 
 @pytest.fixture(scope="function")
@@ -85,6 +119,38 @@ def clean_redis(redis_client):
     redis_client.flushdb()
     yield redis_client
     redis_client.flushdb()
+
+
+# ============================================
+# Elasticsearch Fixtures
+# ============================================
+
+@pytest.fixture(scope="function")
+async def clean_elasticsearch():
+    """Elasticsearch 인덱스를 초기화하는 픽스처"""
+    await elasticsearch_client.connect()
+    
+    # documents 인덱스 초기화 (모든 문서 삭제)
+    try:
+        await elasticsearch_client.client.delete_by_query(
+            index=elasticsearch_client.index_name,
+            body={"query": {"match_all": {}}},
+            refresh=True
+        )
+    except Exception:
+        pass
+        
+    yield elasticsearch_client
+    
+    # 테스트 후 정리
+    try:
+        await elasticsearch_client.client.delete_by_query(
+            index=elasticsearch_client.index_name,
+            body={"query": {"match_all": {}}},
+            refresh=True
+        )
+    except Exception:
+        pass
 
 
 # ============================================
@@ -171,8 +237,12 @@ def mock_text_extractor():
 def mock_keyword_extraction_service():
     """KeywordExtractionService Mock 픽스처"""
     from unittest.mock import AsyncMock
+    from src.core.config import settings
 
     mock_service = AsyncMock()
+    
+    # settings에 정의된 임계값을 Mock 객체에도 설정
+    mock_service.threshold = settings.KEYWORD_EXTRACTION_THRESHOLD
 
     # extract_keywords 메서드 Mock - (키워드 리스트, 추출 방법) 튜플 반환
     mock_service.extract_keywords.return_value = (

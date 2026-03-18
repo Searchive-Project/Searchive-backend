@@ -18,6 +18,7 @@ class Tag(Base):
 
     # 관계 설정
     document_tags = relationship("DocumentTag", back_populates="tag", cascade="all, delete-orphan")
+    documents = relationship("Document", secondary="document_tags", back_populates="tags", viewonly=True)
 
     def __repr__(self):
         return f"<Tag(tag_id={self.tag_id}, name={self.name})>"

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Gemini(OpenAI-Compatible)를 이용한 문서 요약 서비스 (LangChain 기반)"""
+"""Ollama를 이용한 문서 요약 서비스 (LangChain 기반)"""
 from typing import Optional
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from src.core.config import settings
@@ -11,15 +11,14 @@ import re
 logger = logging.getLogger(__name__)
 
 
-class GeminiSummarizer:
-    """LangChain ChatOpenAI(Gemini Compatible)를 사용한 문서 요약 서비스"""
+class OllamaSummarizer:
+    """LangChain ChatOllama를 사용한 문서 요약 서비스"""
 
     def __init__(self):
-        """GeminiSummarizer 초기화"""
-        self.llm = ChatOpenAI(
-            model=settings.LLM_MODEL_NAME,
-            openai_api_key=settings.OPENAI_API_KEY,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        """OllamaSummarizer 초기화"""
+        self.llm = ChatOllama(
+            model=settings.OLLAMA_MODEL,
+            base_url=settings.OLLAMA_URL,
             temperature=0.3,  # 낮은 temperature로 일관성 있는 요약 생성
         )
         
@@ -71,7 +70,7 @@ class GeminiSummarizer:
 
         try:
             # LangChain 체인 실행
-            logger.info("[Gemini] 요약 생성 시작")
+            logger.info("[Ollama] 요약 생성 시작")
             summary = await self.chain.ainvoke({"text": text})
             summary = summary.strip()
 
@@ -99,9 +98,9 @@ class GeminiSummarizer:
             return None
 
         except Exception as e:
-            logger.error(f"Gemini 요약 생성 실패: {e}", exc_info=True)
+            logger.error(f"Ollama 요약 생성 실패: {e}", exc_info=True)
             return None
 
 
-# 전역 Gemini Summarizer 인스턴스 (기존 ollama_summarizer 변수명 유지하여 호환성 확보)
-ollama_summarizer = GeminiSummarizer()
+# 전역 Ollama Summarizer 인스턴스
+ollama_summarizer = OllamaSummarizer()

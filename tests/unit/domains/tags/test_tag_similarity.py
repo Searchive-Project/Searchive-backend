@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """태그 유사도 테스트 스크립트"""
+import pytest
 import numpy as np
 from src.core.embedding_service import embedding_service
 
@@ -35,7 +36,8 @@ def cosine_distance(vec1: np.ndarray, vec2: np.ndarray) -> float:
     return 1 - cosine_similarity(vec1, vec2)
 
 
-def test_tag_pairs():
+@pytest.mark.asyncio
+async def test_tag_pairs():
     """다양한 태그 쌍의 유사도 테스트"""
 
     test_pairs = [
@@ -58,8 +60,8 @@ def test_tag_pairs():
 
     for tag1, tag2 in test_pairs:
         # 임베딩 생성
-        emb1 = embedding_service.encode(tag1)
-        emb2 = embedding_service.encode(tag2)
+        emb1 = await embedding_service.encode(tag1)
+        emb2 = await embedding_service.encode(tag2)
 
         # 유사도 계산
         similarity = cosine_similarity(emb1, emb2)
@@ -80,4 +82,5 @@ def test_tag_pairs():
 
 
 if __name__ == "__main__":
-    test_tag_pairs()
+    import asyncio
+    asyncio.run(test_tag_pairs())

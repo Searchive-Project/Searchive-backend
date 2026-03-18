@@ -137,56 +137,95 @@ class DocumentService:
             document_count = await elasticsearch_client.get_document_count()
             is_cold_start = document_count < keyword_extraction_service.threshold
 
-            if is_cold_start:
-                # Cold Start 모드: KeyBERT 사용하므로 색인 완료를 기다릴 필요 없음
-                # 요약, 색인, 키워드 추출을 모두 병렬로 실행
-                tasks = [
-                    ollama_summarizer.summarize(extracted_text),
-                    elasticsearch_client.index_document(
-                        document_id=document.document_id,
-                        user_id=user_id,
-                        content=extracted_text,
-                        filename=file.filename,
-                        file_type=file.content_type,
-                        uploaded_at=document.uploaded_at.isoformat()
-                    ),
-                    keyword_extraction_service.extract_keywords(
-                        text=extracted_text,
-                        document_id=document.document_id
+            # 전체 작업에 대한 타임아웃 설정 (최대 30초)
+            TIMEOUT_SECONDS = 30
+
+            try:
+                if is_cold_start:
+                    # Cold Start 모드: KeyBERT 사용하므로 색인 완료를 기다릴 필요 없음
+                    # 요약, 색인, 키워드 추출을 모두 병렬로 실행
+                    logger.info(f"Cold Start 모드 적용 (문서 수: {document_count})")
+                    tasks = [
+                        ollama_summarizer.summarize(extracted_text),
+                        elasticsearch_client.index_document(
+                            document_id=document.document_id,
+                            user_id=user_id,
+                            content=extracted_text,
+                            filename=file.filename,
+                            file_type=file.content_type,
+                            uploaded_at=document.uploaded_at.isoformat()
+                        ),
+                        keyword_extraction_service.extract_keywords(
+                            text=extracted_text,
+                            document_id=document.document_id
+                        )
+                    ]
+                    
+                    # asyncio.wait_for를 사용하여 전체 작업에 타임아웃 적용
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=TIMEOUT_SECONDS
                     )
-                ]
-                
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                summary = results[0] if not isinstance(results[0], Exception) else None
-                index_success = results[1] if not isinstance(results[1], Exception) else False
-                keywords_result = results[2] if not isinstance(results[2], Exception) else ([], "keybert")
-                keywords, extraction_method = keywords_result
-            else:
-                # Normal 모드: Elasticsearch 사용하므로 색인이 먼저 완료되어야 함
-                # 요약과 색인만 병렬로 실행
-                tasks = [
-                    ollama_summarizer.summarize(extracted_text),
-                    elasticsearch_client.index_document(
-                        document_id=document.document_id,
-                        user_id=user_id,
-                        content=extracted_text,
-                        filename=file.filename,
-                        file_type=file.content_type,
-                        uploaded_at=document.uploaded_at.isoformat()
+                    
+                    summary = results[0] if not isinstance(results[0], Exception) else None
+                    if isinstance(results[0], Exception):
+                        logger.error(f"요약 생성 중 예외 발생: {results[0]}")
+
+                    index_success = results[1] if not isinstance(results[1], Exception) else False
+                    if isinstance(results[1], Exception):
+                        logger.error(f"ES 색인 중 예외 발생: {results[1]}")
+
+                    keywords_result = results[2] if not isinstance(results[2], Exception) else ([], "keybert")
+                    if isinstance(results[2], Exception):
+                        logger.error(f"키워드 추출 중 예외 발생: {results[2]}")
+                    keywords, extraction_method = keywords_result
+                else:
+                    # Normal 모드: Elasticsearch 사용하므로 색인이 먼저 완료되어야 함
+                    logger.info(f"Normal 모드 적용 (문서 수: {document_count})")
+                    tasks = [
+                        ollama_summarizer.summarize(extracted_text),
+                        elasticsearch_client.index_document(
+                            document_id=document.document_id,
+                            user_id=user_id,
+                            content=extracted_text,
+                            filename=file.filename,
+                            file_type=file.content_type,
+                            uploaded_at=document.uploaded_at.isoformat()
+                        )
+                    ]
+                    
+                    # asyncio.wait_for를 사용하여 전체 작업에 타임아웃 적용
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=TIMEOUT_SECONDS
                     )
-                ]
-                
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                summary = results[0] if not isinstance(results[0], Exception) else None
-                index_success = results[1] if not isinstance(results[1], Exception) else False
-                
-                # 색인 완료 후 키워드 추출 실행
-                keywords, extraction_method = await keyword_extraction_service.extract_keywords(
-                    text=extracted_text,
-                    document_id=document.document_id
-                )
+                    
+                    summary = results[0] if not isinstance(results[0], Exception) else None
+                    if isinstance(results[0], Exception):
+                        logger.error(f"요약 생성 중 예외 발생: {results[0]}")
+
+                    index_success = results[1] if not isinstance(results[1], Exception) else False
+                    if isinstance(results[1], Exception):
+                        logger.error(f"ES 색인 중 예외 발생: {results[1]}")
+                    
+                    # 색인 완료 후 약간의 지연(refresh)을 고려하여 키워드 추출 실행
+                    if index_success:
+                        logger.info("ES 색인 성공, 키워드 추출 시작")
+                        keywords, extraction_method = await asyncio.wait_for(
+                            keyword_extraction_service.extract_keywords(
+                                text=extracted_text,
+                                document_id=document.document_id
+                            ),
+                            timeout=TIMEOUT_SECONDS
+                        )
+                    else:
+                        logger.warning("ES 색인 실패로 인해 Elasticsearch 키워드 추출을 건너뜁니다.")
+                        keywords, extraction_method = [], "elasticsearch"
+            except asyncio.TimeoutError:
+                logger.error(f"문서 {document.document_id} 처리 중 타임아웃 발생 ({TIMEOUT_SECONDS}초)")
+                summary = None
+                index_success = False
+                keywords, extraction_method = [], "none"
 
             # 요약 결과 반영
             if summary:
@@ -254,7 +293,7 @@ class DocumentService:
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="문서 업로드 중 오류가 발생했습니다."
+                detail=f"문서 업로드 중 오류가 발생했습니다: {str(e)}"
             )
 
     async def get_user_documents(self, user_id: int) -> List[Document]:
