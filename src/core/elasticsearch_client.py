@@ -827,8 +827,9 @@ class ElasticsearchClient:
                 "highlight": {
                     "fields": {
                         "content": {
-                            "fragment_size": 300,  # 300자 스니펫
-                            "number_of_fragments": 1
+                            "fragment_size": 1000,  # 1,000자 스니펫
+                            "number_of_fragments": 3, # 최대 3개의 조각 추출
+                            "no_match_size": 1000   # 검색 결과가 없어도 앞부분 1000자 반환
                         }
                     }
                 }
@@ -843,12 +844,13 @@ class ElasticsearchClient:
             # 결과 파싱
             documents = []
             for hit in result["hits"]["hits"]:
-                # 하이라이트된 스니펫 추출 (없으면 앞부분 300자)
+                # 하이라이트된 스니펫 추출 (없으면 앞부분 1000자)
                 content_snippet = ""
                 if "highlight" in hit and "content" in hit["highlight"]:
-                    content_snippet = hit["highlight"]["content"][0]
+                    # 여러 조각을 합쳐서 제공
+                    content_snippet = "\n... ".join(hit["highlight"]["content"])
                 else:
-                    content_snippet = hit["_source"]["content"][:300]
+                    content_snippet = hit["_source"]["content"][:1000]
 
                 documents.append({
                     "document_id": hit["_source"]["document_id"],

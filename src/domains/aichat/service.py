@@ -350,7 +350,7 @@ class AIChatService:
         user_id: int,
         conversation_id: int,
         user_query: str,
-        max_results: int = 5
+        max_results: int = 10
     ) -> str:
         """
         RAG 컨텍스트 생성 (Elasticsearch 검색)
