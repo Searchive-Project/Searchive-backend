@@ -137,8 +137,8 @@ class DocumentService:
             document_count = await elasticsearch_client.get_document_count()
             is_cold_start = document_count < keyword_extraction_service.threshold
 
-            # 전체 작업에 대한 타임아웃 설정 (최대 30초)
-            TIMEOUT_SECONDS = 30
+            # 전체 작업에 대한 타임아웃 설정 (최대 180초)
+            TIMEOUT_SECONDS = 180
 
             try:
                 if is_cold_start:
@@ -169,19 +169,21 @@ class DocumentService:
                     
                     summary = results[0] if not isinstance(results[0], Exception) else None
                     if isinstance(results[0], Exception):
-                        logger.error(f"요약 생성 중 예외 발생: {results[0]}")
+                        logger.error(f"요약 생성 중 예외 발생: {results[0]}", exc_info=True)
 
                     index_success = results[1] if not isinstance(results[1], Exception) else False
                     if isinstance(results[1], Exception):
-                        logger.error(f"ES 색인 중 예외 발생: {results[1]}")
+                        logger.error(f"ES 색인 중 예외 발생: {results[1]}", exc_info=True)
 
                     keywords_result = results[2] if not isinstance(results[2], Exception) else ([], "keybert")
                     if isinstance(results[2], Exception):
-                        logger.error(f"키워드 추출 중 예외 발생: {results[2]}")
+                        logger.error(f"키워드 추출 중 예외 발생: {results[2]}", exc_info=True)
                     keywords, extraction_method = keywords_result
                 else:
                     # Normal 모드: Elasticsearch 사용하므로 색인이 먼저 완료되어야 함
                     logger.info(f"Normal 모드 적용 (문서 수: {document_count})")
+                    
+                    # 요약과 색인을 먼저 병렬로 실행
                     tasks = [
                         ollama_summarizer.summarize(extracted_text),
                         elasticsearch_client.index_document(
@@ -194,7 +196,6 @@ class DocumentService:
                         )
                     ]
                     
-                    # asyncio.wait_for를 사용하여 전체 작업에 타임아웃 적용
                     results = await asyncio.wait_for(
                         asyncio.gather(*tasks, return_exceptions=True),
                         timeout=TIMEOUT_SECONDS
@@ -202,13 +203,13 @@ class DocumentService:
                     
                     summary = results[0] if not isinstance(results[0], Exception) else None
                     if isinstance(results[0], Exception):
-                        logger.error(f"요약 생성 중 예외 발생: {results[0]}")
+                        logger.error(f"요약 생성 중 예외 발생: {results[0]}", exc_info=True)
 
                     index_success = results[1] if not isinstance(results[1], Exception) else False
                     if isinstance(results[1], Exception):
-                        logger.error(f"ES 색인 중 예외 발생: {results[1]}")
+                        logger.error(f"ES 색인 중 예외 발생: {results[1]}", exc_info=True)
                     
-                    # 색인 완료 후 약간의 지연(refresh)을 고려하여 키워드 추출 실행
+                    # 색인 완료 후(refresh=True 적용됨) 키워드 추출 실행
                     if index_success:
                         logger.info("ES 색인 성공, 키워드 추출 시작")
                         keywords, extraction_method = await asyncio.wait_for(
@@ -565,7 +566,8 @@ class DocumentService:
 
         # 1. 각 검색어에 대해 임베딩 생성
         from src.core.embedding_service import embedding_service
-        embeddings = [embedding_service.encode(tag_name) for tag_name in tag_names]
+        import asyncio
+        embeddings = await asyncio.gather(*[embedding_service.encode(tag_name) for tag_name in tag_names])
         logger.info(f"임베딩 생성 완료: {len(embeddings)}개")
 
         # 2. Elasticsearch 배치 유사도 검색

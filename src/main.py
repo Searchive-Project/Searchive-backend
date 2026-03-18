@@ -12,6 +12,11 @@ from src.core.exception import (
 from alembic.config import Config
 from alembic import command
 import os
+import logging
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # FastAPI 앱 초기화
 app = FastAPI(
@@ -36,11 +41,21 @@ app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
-# @app.on_event("startup")
-# async def startup_event():
-#     """애플리케이션 시작 시 데이터베이스 마이그레이션 실행"""
-#     alembic_cfg = Config("alembic.ini")
-#     command.upgrade(alembic_cfg, "head")
+@app.on_event("startup")
+async def startup_event():
+    """애플리케이션 시작 시 데이터베이스 마이그레이션 및 AI 모델 로드"""
+    # alembic_cfg = Config("alembic.ini")
+    # command.upgrade(alembic_cfg, "head")
+    
+    # KeyBERT 모델 사전 로드 (Cold Start 방지)
+    try:
+        from src.core.keyword_extraction import keyword_extraction_service
+        import asyncio
+        # 별도의 스레드에서 모델 로드 시작 (시작 속도 저하 방지)
+        asyncio.create_task(asyncio.to_thread(keyword_extraction_service.keybert_extractor._load_model))
+        logger.info("KeyBERT 모델 백그라운드 로딩 시작...")
+    except Exception as e:
+        logger.error(f"모델 사전 로딩 실패: {e}")
 
 
 @app.on_event("shutdown")

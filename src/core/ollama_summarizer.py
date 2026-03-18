@@ -20,8 +20,9 @@ class OllamaSummarizer:
             model=settings.OLLAMA_MODEL,
             base_url=settings.OLLAMA_URL,
             temperature=0.3,  # 낮은 temperature로 일관성 있는 요약 생성
+            timeout=120,      # 요약 생성 타임아웃 설정 상향
         )
-        
+
         # 요약 프롬프트 템플릿 설정
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """아래 문서 내용을 읽고, 핵심 주제를 한 문장으로 새롭게 작성하세요.

@@ -30,7 +30,7 @@ async def test_similarity_search():
 
         # 2. "클라우드" 임베딩 생성
         korean_cloud = "클라우드"
-        korean_embedding = embedding_service.encode(korean_cloud)
+        korean_embedding = await embedding_service.encode(korean_cloud)
 
         # 3. 유사도 계산
         if cloud_embedding:

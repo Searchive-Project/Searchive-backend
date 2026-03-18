@@ -227,7 +227,8 @@ class ElasticsearchClient:
             await self.client.index(
                 index=self.index_name,
                 id=str(document_id),
-                document=doc_body
+                document=doc_body,
+                refresh=True
             )
             logger.info(f"문서 색인 성공: document_id={document_id}")
             return True
