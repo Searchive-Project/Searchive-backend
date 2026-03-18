@@ -40,9 +40,9 @@ class EmbeddingService:
                 logger.error(f"임베딩 모델 로드 실패: {e}", exc_info=True)
                 raise RuntimeError(f"임베딩 모델 로드 실패: {e}")
 
-    def encode(self, text: Union[str, List[str]]) -> Union[np.ndarray, List[np.ndarray]]:
+    async def encode(self, text: Union[str, List[str]]) -> Union[np.ndarray, List[np.ndarray]]:
         """
-        텍스트를 임베딩 벡터로 변환
+        텍스트를 임베딩 벡터로 변환 (비동기)
 
         Args:
             text: 단일 텍스트 또는 텍스트 리스트
@@ -50,6 +50,11 @@ class EmbeddingService:
         Returns:
             임베딩 벡터 (numpy array) 또는 벡터 리스트
         """
+        import asyncio
+        return await asyncio.to_thread(self._sync_encode, text)
+
+    def _sync_encode(self, text: Union[str, List[str]]) -> Union[np.ndarray, List[np.ndarray]]:
+        """실제 임베딩 생성을 수행하는 동기 메서드"""
         self._load_model()
 
         try:

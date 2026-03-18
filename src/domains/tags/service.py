@@ -67,8 +67,8 @@ class TagService:
         Returns:
             Tag 객체
         """
-        # 임베딩 생성
-        embedding = embedding_service.encode(name)
+        # 임베딩 생성 (비동기 호출로 수정)
+        embedding = await embedding_service.encode(name)
 
         # 임베딩 기반 Get-or-Create
         return await self.tag_repository.get_or_create(
@@ -120,8 +120,9 @@ class TagService:
 
         logger.info(f"태그 조회/생성 시작 (Elasticsearch 배치 검색): {unique_names}")
 
-        # 배치로 임베딩 생성
-        embeddings = [embedding_service.encode(name) for name in unique_names]
+        # 배치로 임베딩 생성 (비동기 병렬 처리로 수정)
+        import asyncio
+        embeddings = await asyncio.gather(*[embedding_service.encode(name) for name in unique_names])
 
         # Elasticsearch 배치 검색을 위해 임베딩 리스트 변환
         from src.core.elasticsearch_client import elasticsearch_client

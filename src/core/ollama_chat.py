@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Ollama를 이용한 AI 채팅 서비스 (LangChain 기반)"""
+"""Gemini(OpenAI-Compatible)를 이용한 AI 채팅 서비스 (LangChain 기반)"""
 import os
 from typing import Optional, List
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from src.core.config import settings
 import logging
@@ -14,16 +14,17 @@ os.environ["LANGCHAIN_TRACING_V2"] = str(settings.LANGCHAIN_TRACING_V2).lower()
 os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
 os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
 
-class OllamaChat:
-    """LangChain ChatOllama를 사용한 AI 채팅 서비스"""
+class GeminiChat:
+    """LangChain ChatOpenAI(Gemini Compatible)를 사용한 AI 채팅 서비스"""
 
     def __init__(self):
-        """OllamaChat 초기화"""
-        self.llm = ChatOllama(
-            model=settings.OLLAMA_MODEL,
-            base_url=settings.OLLAMA_URL,
+        """GeminiChat 초기화"""
+        # Google AI Studio의 OpenAI 호환 엔드포인트 사용
+        self.llm = ChatOpenAI(
+            model=settings.LLM_MODEL_NAME,
+            openai_api_key=settings.OPENAI_API_KEY,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             temperature=0.7,
-            num_ctx=2048,  # 컨텍스트 길이 설정
         )
 
     async def chat(
@@ -67,15 +68,15 @@ class OllamaChat:
 
         # 2. 컨텍스트 추가
         if context:
-            logger.info(f"[LangChain] 컨텍스트 추가 - 길이: {len(context)}자")
+            logger.info(f"[Gemini] 컨텍스트 추가 - 길이: {len(context)}자")
             messages.append(SystemMessage(content=f"=== 참고 문서 내용 ===\n{context}"))
         else:
-            logger.warning("[LangChain] 컨텍스트가 비어있습니다!")
+            logger.warning("[Gemini] 컨텍스트가 비어있습니다!")
 
         # 3. 대화 히스토리 추가 (최근 N개만)
         if history:
             recent_history = history[-max_history:]
-            logger.info(f"[LangChain] 대화 히스토리 추가 - {len(recent_history)}개 메시지")
+            logger.info(f"[Gemini] 대화 히스토리 추가 - {len(recent_history)}개 메시지")
             for msg in recent_history:
                 if msg.role == "user":
                     messages.append(HumanMessage(content=msg.content))
@@ -87,7 +88,7 @@ class OllamaChat:
 
         try:
             # 5. LangChain invoke 실행
-            logger.info(f"[LangChain] LLM 호출 시작 - 모델: {settings.OLLAMA_MODEL}")
+            logger.info(f"[Gemini] LLM 호출 시작 - 모델: {settings.LLM_MODEL_NAME}")
             response = await self.llm.ainvoke(messages)
             
             ai_response = response.content.strip()
@@ -99,10 +100,9 @@ class OllamaChat:
             return ai_response
 
         except Exception as e:
-            logger.error(f"LangChain AI 응답 생성 실패: {e}", exc_info=True)
+            logger.error(f"Gemini AI 응답 생성 실패: {e}", exc_info=True)
             return None
 
 
-# 전역 Ollama Chat 인스턴스
-ollama_chat = OllamaChat()
-
+# 전역 Gemini Chat 인스턴스 (기존 ollama_chat 변수명 유지하여 호환성 확보)
+ollama_chat = GeminiChat()

@@ -128,30 +128,75 @@ class DocumentService:
                 await self.db.refresh(document)
                 return document, [], "none"
 
-            # 7. 문서 요약 생성 (Ollama 사용)
-            summary = await ollama_summarizer.summarize(extracted_text)
+            # 7 & 8. 요약 생성과 Elasticsearch 색인을 병렬로 처리 (속도 최적화)
+            import asyncio
+            
+            logger.info(f"문서 {document.document_id} 요약 및 색인 시작 (병렬)")
+            
+            # 하이브리드 전략 선택을 위해 현재 문서 수 확인
+            document_count = await elasticsearch_client.get_document_count()
+            is_cold_start = document_count < keyword_extraction_service.threshold
+
+            if is_cold_start:
+                # Cold Start 모드: KeyBERT 사용하므로 색인 완료를 기다릴 필요 없음
+                # 요약, 색인, 키워드 추출을 모두 병렬로 실행
+                tasks = [
+                    ollama_summarizer.summarize(extracted_text),
+                    elasticsearch_client.index_document(
+                        document_id=document.document_id,
+                        user_id=user_id,
+                        content=extracted_text,
+                        filename=file.filename,
+                        file_type=file.content_type,
+                        uploaded_at=document.uploaded_at.isoformat()
+                    ),
+                    keyword_extraction_service.extract_keywords(
+                        text=extracted_text,
+                        document_id=document.document_id
+                    )
+                ]
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                summary = results[0] if not isinstance(results[0], Exception) else None
+                index_success = results[1] if not isinstance(results[1], Exception) else False
+                keywords_result = results[2] if not isinstance(results[2], Exception) else ([], "keybert")
+                keywords, extraction_method = keywords_result
+            else:
+                # Normal 모드: Elasticsearch 사용하므로 색인이 먼저 완료되어야 함
+                # 요약과 색인만 병렬로 실행
+                tasks = [
+                    ollama_summarizer.summarize(extracted_text),
+                    elasticsearch_client.index_document(
+                        document_id=document.document_id,
+                        user_id=user_id,
+                        content=extracted_text,
+                        filename=file.filename,
+                        file_type=file.content_type,
+                        uploaded_at=document.uploaded_at.isoformat()
+                    )
+                ]
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                summary = results[0] if not isinstance(results[0], Exception) else None
+                index_success = results[1] if not isinstance(results[1], Exception) else False
+                
+                # 색인 완료 후 키워드 추출 실행
+                keywords, extraction_method = await keyword_extraction_service.extract_keywords(
+                    text=extracted_text,
+                    document_id=document.document_id
+                )
+
+            # 요약 결과 반영
             if summary:
                 document.summary = summary
-                logger.info(f"문서 요약 생성 완료: document_id={document.document_id}, summary={summary[:50]}...")
+                logger.info(f"문서 요약 생성 완료: document_id={document.document_id}")
             else:
-                logger.warning(f"문서 {document.document_id}에서 요약 생성 실패")
+                logger.warning(f"문서 {document.document_id} 요약 생성 실패 또는 예외 발생")
 
-            # 8. Elasticsearch에 문서 색인
-            await elasticsearch_client.index_document(
-                document_id=document.document_id,
-                user_id=user_id,
-                content=extracted_text,
-                filename=file.filename,
-                file_type=file.content_type,
-                uploaded_at=document.uploaded_at.isoformat()
-            )
-            logger.info(f"Elasticsearch 색인 완료: document_id={document.document_id}")
-
-            # 9. 하이브리드 키워드 추출 (KeyBERT or Elasticsearch)
-            keywords, extraction_method = await keyword_extraction_service.extract_keywords(
-                text=extracted_text,
-                document_id=document.document_id
-            )
+            if not index_success:
+                logger.warning(f"문서 {document.document_id} Elasticsearch 색인 실패 또는 예외 발생")
 
             if not keywords:
                 logger.warning(f"문서 {document.document_id}에서 키워드 추출 실패. 태그 생성 건너뜀.")
