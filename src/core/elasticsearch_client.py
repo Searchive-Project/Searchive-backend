@@ -79,7 +79,7 @@ class ElasticsearchClient:
                             "analyzer": {
                                 "korean_nori_analyzer": {
                                     "type": "custom",
-                                    "tokenizer": "nori_tokenizer",
+                                    "tokenizer": "nori_tokenizer", # 노리 사용
                                     "filter": [
                                         "nori_pos_filter",
                                         "lowercase"
@@ -89,7 +89,7 @@ class ElasticsearchClient:
                             "filter": {
                                 "nori_pos_filter": {
                                     "type": "nori_part_of_speech",
-                                    "stoptags": [
+                                    "stoptags": [ # 검색에 방해되거나 의미가 적은 단어 제거 - 조사 제거
                                         # 조사 (모든 유형)
                                         "J",      # 조사 전체
                                         "JKS",    # 주격 조사 (이, 가)
@@ -130,8 +130,8 @@ class ElasticsearchClient:
                                 }
                             }
                         },
-                        "number_of_shards": 1,
-                        "number_of_replicas": 0
+                        "number_of_shards": 1, # 데이터를 몇 개의 조각으로 나눌까?
+                        "number_of_replicas": 0 # shards의 복사본을 몇개 만들까?
                     },
                     "mappings": {
                         "properties": {
@@ -140,7 +140,7 @@ class ElasticsearchClient:
                             "content": {
                                 "type": "text",
                                 "analyzer": "korean_nori_analyzer",
-                                "fielddata": True  # TF-IDF 기반 키워드 추출을 위해 필요
+                                "fielddata": True  # TF-IDF(단어 빈도수) 기반 키워드 추출을 위해 필요
                             },
                             "filename": {"type": "keyword"},
                             "file_type": {"type": "keyword"},
@@ -304,11 +304,11 @@ class ElasticsearchClient:
             # TF-IDF 계산 및 정렬
             term_scores = []
             for term, term_info in terms.items():
-                # TF (Term Frequency)
+                # TF (Term Frequency) - 단어 빈도
                 tf = term_info.get("term_freq", 1)
-                # DF (Document Frequency)
+                # DF (Document Frequency) - 문서 빈도
                 df = term_info.get("doc_freq", 1)
-                # IDF 계산
+                # IDF 계산 - 역문서 빈도(희귀성 점수)
                 total_docs = tv_response["term_vectors"]["content"]["field_statistics"]["doc_count"]
                 import math
                 idf = math.log((total_docs + 1) / (df + 1)) + 1
